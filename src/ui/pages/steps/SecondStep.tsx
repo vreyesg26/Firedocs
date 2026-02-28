@@ -19,7 +19,6 @@ import { mainColor } from "@/lib/utils";
 
 export const SecondStep = () => {
   const { data, detailedPieces, setDetailedPieces } = useManual();
-  console.log("🟣 SecondStep detailedPieces:", detailedPieces);
   const [gitModalOpen, setGitModalOpen] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitData, setGitData] = useState<RepoStatus[]>([]);

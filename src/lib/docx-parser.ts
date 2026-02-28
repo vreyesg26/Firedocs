@@ -14,38 +14,8 @@ type SupportedInput =
   | ArrayBufferView
   | { type: "Buffer"; data: number[] };
 
-function textFromParagraph(p: any): string {
-  const runs = p?.["w:r"]
-    ? Array.isArray(p["w:r"])
-      ? p["w:r"]
-      : [p["w:r"]]
-    : [];
-  return runs
-    .map((r: any) => {
-      const t = r?.["w:t"];
-      if (typeof t === "string") return t;
-      if (t?.["#text"]) return t["#text"];
-      return "";
-    })
-    .join("");
-}
-
 function normalize(s: string) {
   return (s ?? "").replace(/\s+/g, " ").trim();
-}
-
-function headersMapIndex(headers: string[]) {
-  const map: Record<"nombre" | "tipo" | "estado", number> = {
-    nombre: -1,
-    tipo: -1,
-  };
-  headers.forEach((h, i) => {
-    const key = normalize(h).toLowerCase();
-    if (/(^|\s)nombre(\s|$)/.test(key)) map.nombre = i;
-    else if (/^tipo$/.test(key)) map.tipo = i;
-    else if (/nuevo|modificado|nuevo o modificado/.test(key)) map.estado = i;
-  });
-  return map;
 }
 
 function toUint8Array(input: SupportedInput): Uint8Array {
@@ -58,32 +28,94 @@ function toUint8Array(input: SupportedInput): Uint8Array {
   return new Uint8Array(input as ArrayBufferLike);
 }
 
-function walk(node: any, ordered: any[]) {
-  if (!node || typeof node !== "object") return;
+function walkPreserveOrder(node: any, ordered: any[]) {
+  if (!node) return;
 
-  if (node["w:p"]) {
-    const ps = Array.isArray(node["w:p"]) ? node["w:p"] : [node["w:p"]];
-    for (const p of ps) ordered.push({ type: "p", node: p });
+  if (Array.isArray(node)) {
+    for (const item of node) walkPreserveOrder(item, ordered);
+    return;
   }
 
-  if (node["w:tbl"]) {
-    const tbls = Array.isArray(node["w:tbl"]) ? node["w:tbl"] : [node["w:tbl"]];
-    for (const t of tbls) ordered.push({ type: "tbl", node: t });
-  }
+  if (typeof node !== "object") return;
 
-  for (const key of Object.keys(node)) {
-    const child = node[key];
-    if (!child) continue;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === ":@") continue;
 
-    if (Array.isArray(child)) {
-      for (const c of child) walk(c, ordered);
-      continue;
+    if (key === "w:p") {
+      ordered.push({ type: "p", node: value });
+    } else if (key === "w:tbl") {
+      ordered.push({ type: "tbl", node: value });
     }
 
-    if (typeof child === "object") {
-      walk(child, ordered);
-    }
+    walkPreserveOrder(value, ordered);
   }
+}
+
+function collectNodesByKey(node: any, key: string, out: any[] = []): any[] {
+  if (!node) return out;
+
+  if (Array.isArray(node)) {
+    for (const n of node) collectNodesByKey(n, key, out);
+    return out;
+  }
+
+  if (typeof node !== "object") return out;
+
+  for (const [k, v] of Object.entries(node)) {
+    if (k === ":@") continue;
+    if (k === key) out.push(v);
+    collectNodesByKey(v, key, out);
+  }
+
+  return out;
+}
+
+function extractTextPreserveOrder(node: any): string {
+  if (node == null) return "";
+  if (typeof node === "string") return node;
+
+  if (Array.isArray(node)) {
+    return node.map((n) => extractTextPreserveOrder(n)).join("");
+  }
+
+  if (typeof node !== "object") return "";
+
+  if (typeof node["#text"] === "string") return node["#text"];
+
+  let out = "";
+  for (const [k, v] of Object.entries(node)) {
+    if (k === ":@") continue;
+    out += extractTextPreserveOrder(v);
+  }
+  return out;
+}
+
+function textFromParagraphPO(pNode: any): string {
+  return extractTextPreserveOrder(pNode);
+}
+
+function tableFromPreserveOrder(tblNode: any): string[][] {
+  const rows: string[][] = [];
+  const trNodes = Array.isArray(tblNode)
+    ? tblNode.filter((n: any) => n && typeof n === "object" && n["w:tr"]).map((n: any) => n["w:tr"])
+    : [];
+
+  for (const tr of trNodes) {
+    const tcNodes = Array.isArray(tr)
+      ? tr.filter((n: any) => n && typeof n === "object" && n["w:tc"]).map((n: any) => n["w:tc"])
+      : [];
+
+    const row: string[] = [];
+    for (const tc of tcNodes) {
+      const paras = collectNodesByKey(tc, "w:p");
+      const cellText = normalize(paras.map((p) => textFromParagraphPO(p)).join(" "));
+      row.push(cellText);
+    }
+
+    if (row.some(Boolean)) rows.push(row);
+  }
+
+  return rows;
 }
 
 export async function parseDocxArrayBuffer(
@@ -101,6 +133,13 @@ export async function parseDocxArrayBuffer(
   });
   const xml: any = parser.parse(docXml);
 
+  const orderedParser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "",
+    preserveOrder: true,
+  });
+  const orderedXml: any[] = orderedParser.parse(docXml);
+
   const body = xml?.["w:document"]?.["w:body"];
   if (!body) throw new Error("Estructura DOCX no reconocida");
 
@@ -108,39 +147,19 @@ export async function parseDocxArrayBuffer(
   const tables: string[][][] = [];
 
   const orderedNodes: Array<{ type: "p" | "tbl"; node: any }> = [];
-  walk(body, orderedNodes);
+  const orderedBody =
+    orderedXml
+      ?.find((n: any) => n?.["w:document"])
+      ?.["w:document"]?.find((n: any) => n?.["w:body"])
+      ?.["w:body"] ?? [];
+  walkPreserveOrder(orderedBody, orderedNodes);
 
   for (const item of orderedNodes) {
     if (item.type === "p") {
-      const t = normalize(textFromParagraph(item.node));
+      const t = normalize(textFromParagraphPO(item.node));
       if (t) paragraphs.push(t);
     } else {
-      const rows = item.node?.["w:tr"]
-        ? Array.isArray(item.node["w:tr"])
-          ? item.node["w:tr"]
-          : [item.node["w:tr"]]
-        : [];
-      const table: string[][] = [];
-      for (const tr of rows) {
-        const cells = tr?.["w:tc"]
-          ? Array.isArray(tr["w:tc"])
-            ? tr["w:tc"]
-            : [tr["w:tc"]]
-          : [];
-        const row: string[] = [];
-        for (const tc of cells) {
-          const paras = tc?.["w:p"]
-            ? Array.isArray(tc["w:p"])
-              ? tc["w:p"]
-              : [tc["w:p"]]
-            : [];
-          const cellText = normalize(
-            paras.map((p: any) => textFromParagraph(p)).join(" ")
-          );
-          row.push(cellText);
-        }
-        if (row.some(Boolean)) table.push(row);
-      }
+      const table = tableFromPreserveOrder(item.node);
       if (table.length) tables.push(table);
     }
   }
@@ -153,133 +172,194 @@ export async function parseDocxArrayBuffer(
       camposDetectados.push({ key: normalize(m[1]), value: normalize(m[2]) });
   }
 
-  function getTitleBeforeTable(index: number): string | null {
-    for (let i = index - 1; i >= 0 && index - i <= 6; i--) {
-      const node = orderedNodes[i];
-      if (!node) continue;
-      if (node.type === "tbl") break;
-      if (node.type === "p") {
-        const txt = normalize(textFromParagraph(node.node));
-        if (!txt) continue;
-        const lower = txt.toLowerCase();
-        if (/^listado de piezas detalladas/.test(lower)) continue;
-        if (/^informaci[oó]n general/.test(lower)) continue;
-        if (/^paso\s+\d+/.test(lower)) continue;
-        if (txt.length > 120) continue;
-        return txt
-          .replace(/\s*-\s*listado de piezas detalladas.*$/i, "")
-          .trim();
-      }
-    }
-    return null;
-  }
-
   // BUSCAR EL INICIO DEL BLOQUE DE PIEZAS DETALLADAS
-  let startIndex = -1;
+  let startIndexDetailed = -1;
+  let endIndexDetailed = -1;
 
   for (let i = 0; i < tables.length; i++) {
     const flat = normalize(tables[i].flat().join(" ").toLowerCase());
     if (flat.includes("listado de piezas detalladas")) {
-      startIndex = i + 1; // Las tablas de piezas empiezan después de esta
+      startIndexDetailed = i + 1;
       break;
     }
   }
 
-  if (startIndex === -1) {
+  // Buscar el fin del bloque de piezas detalladas
+  if (startIndexDetailed > 0) {
+    for (let i = startIndexDetailed; i < tables.length; i++) {
+      const flat = normalize(tables[i].flat().join(" ").toLowerCase());
+      if (flat.includes("listado de piezas detalladas para bugfix") || 
+          flat.includes("anexos") ||
+          flat.includes("firma autorizada")) {
+        endIndexDetailed = i;
+        break;
+      }
+    }
+    if (endIndexDetailed === -1) {
+      endIndexDetailed = tables.length;
+    }
+  } else {
     console.warn("⚠ No se encontró la sección de piezas detalladas");
-    startIndex = 0;
+    startIndexDetailed = 0;
+    endIndexDetailed = tables.length;
   }
 
-  // Para evitar duplicar grupos con el mismo título
   // ===============================================
-  //  NUEVA DETECCIÓN DE TABLAS DE PIEZAS DETALLADAS (DEFINITIVA)
+  // NUEVA DETECCIÓN: Buscar tablas con patrón de encabezados primero
   // ===============================================
-
-  const gruposAgregados = new Set<string>();
+  
   const piezasDetalladas: PiezasGrupo[] = [];
-  let sinTituloCountFix = 1;
+  const procesedTableIndices = new Set<number>();
 
-  function isHeaderRowFix(row: string[]): boolean {
+  function isHeaderRow(row: string[]): boolean {
     const lower = row.map((c) => normalize(c).toLowerCase());
     return (
       lower.some((c) => c === "nombre") &&
       lower.some((c) => c === "tipo") &&
-      lower.some((c) => c.includes("nuevo"))
+      lower.some((c) => c.includes("nuevo") || c.includes("modificado"))
     );
   }
 
-  // Una tabla de título es simplemente aquella que NO tiene header
-  function isTitleTableFix(tbl: string[][]): boolean {
-    if (!tbl?.length) return false;
-    return !isHeaderRowFix(tbl[0]);
+  function findTableTitleInContext(tableIndex: number): string | null {
+    // Buscar en párrafos inmediatamente antes de esta tabla en orderedNodes
+    let foundTableCount = 0;
+    
+    for (let i = 0; i < orderedNodes.length; i++) {
+      if (orderedNodes[i].type === "tbl") {
+        if (foundTableCount === tableIndex) {
+          // Encontramos la tabla, ahora busca títulos hacia atrás
+          for (let j = i - 1; j >= 0 && i - j <= 10; j--) {
+            const node = orderedNodes[j];
+            if (node.type === "tbl") break; // No cruzar otra tabla
+            if (node.type === "p") {
+              const txt = normalize(textFromParagraphPO(node.node));
+              if (!txt) continue;
+              const lower = txt.toLowerCase();
+              // Ignorar textos que no son títulos
+              if (/^listado de piezas|^paso\s+\d|^informaci[óo]n general/i.test(lower)) continue;
+              if (txt.length > 150) continue; // Evitar párrafos muy largos
+              return txt;
+            }
+          }
+          break;
+        }
+        foundTableCount++;
+      }
+    }
+    
+    return null;
   }
 
-  const fixGroups: { title: string; table: string[][] }[] = [];
+  // Procesar tablas en el rango de piezas detalladas
+  for (let i = startIndexDetailed; i < endIndexDetailed; i++) {
+    if (procesedTableIndices.has(i)) continue;
 
-  // OJO: solo procesamos las tablas que vienen DESPUÉS del encabezado
-  const piezasTables = tables.slice(startIndex);
+    const tbl = tables[i];
+    if (!tbl?.length) continue;
 
-  for (let i = 0; i < piezasTables.length; i++) {
-    const tbl = piezasTables[i];
+    console.log(`\n[DEBUG] Analizando tabla ${i} (índice en rango de piezas: ${i - startIndexDetailed})`);
+    console.log(`  - Filas: ${tbl.length}`);
+    console.log(`  - Preview: ${tbl[0]?.slice(0, 3).join(" | ")}`);
 
-    // Caso 1: es una tabla de título (sin header)
-    if (isTitleTableFix(tbl)) {
-      const title =
-        normalize(tbl.flat().join(" ")) || `Sin título ${sinTituloCountFix++}`;
-
-      const next = piezasTables[i + 1];
-
-      // Debe existir la tabla con header inmediata después
-      if (next && isHeaderRowFix(next[0])) {
-        fixGroups.push({ title, table: next });
-        i++; // saltar la tabla de datos
+    // Buscar si esta tabla tiene el patrón de headers
+    let headerRowIndex = -1;
+    for (let rowIdx = 0; rowIdx < Math.min(5, tbl.length); rowIdx++) {
+      if (isHeaderRow(tbl[rowIdx])) {
+        headerRowIndex = rowIdx;
+        console.log(`  ✓ Header encontrado en fila ${rowIdx}`);
+        break;
       }
+    }
 
+    if (headerRowIndex === -1) {
+      console.log(`  ✗ No tiene patrón de headers, saltando...`);
+      continue; // No es una tabla de piezas
+    }
+
+    // Encontrar el título para esta tabla
+    let titulo = findTableTitleInContext(i);
+    console.log(`  - Titulo encontrado: "${titulo || "NO ENCONTRADO"}"`);
+    
+    // Si no encuentra título en paragrafos, buscar en filas anteriores de la misma tabla
+    if (!titulo) {
+      for (let rowIdx = headerRowIndex - 1; rowIdx >= 0 && headerRowIndex - rowIdx <= 3; rowIdx--) {
+        const row = tbl[rowIdx];
+        if (!row?.length) continue;
+        const nonEmpty = row.map(normalize).filter(Boolean);
+        // Si hay solo una celda no vacía, podría ser el título
+        if (nonEmpty.length === 1 && nonEmpty[0].length > 0 && nonEmpty[0].length < 100) {
+          titulo = nonEmpty[0];
+          console.log(`  - Titulo encontrado en fila ${rowIdx} de la tabla: "${titulo}"`);
+          break;
+        }
+      }
+    }
+
+    if (!titulo) {
+      titulo = "Sin título";
+      console.log(`  - Usando titulo por defecto`);
+    }
+
+    // Extraer encabezados
+    const header = tbl[headerRowIndex];
+    const colNombre = header.findIndex((c) => /nombre/i.test(normalize(c)));
+    const colTipo = header.findIndex((c) => /tipo/i.test(normalize(c)));
+    const colEstado = header.findIndex((c) => /(nuevo|modificado)/i.test(normalize(c)));
+
+    console.log(`  - Columnas: nombre=${colNombre}, tipo=${colTipo}, estado=${colEstado}`);
+
+    if (colNombre === -1 || colTipo === -1 || colEstado === -1) {
+      console.log(`  ✗ Columnas incompletas, saltando...`);
       continue;
     }
 
-    // Caso 2: tabla con header sin título previo → Sin título N
-    if (isHeaderRowFix(tbl[0])) {
-      const title = `Sin título ${sinTituloCountFix++}`;
-      fixGroups.push({ title, table: tbl });
+    // Extraer items desde las filas después del header
+    const items: PiezasItem[] = [];
+    for (let rowIdx = headerRowIndex + 1; rowIdx < tbl.length; rowIdx++) {
+      const row = tbl[rowIdx];
+      if (!row) continue;
+
+      const nombre = normalize(row[colNombre] || "");
+      if (!nombre) continue; // Saltar filas vacías
+
+      const tipo = normalize(row[colTipo] || "");
+      const estadoRaw = normalize(row[colEstado] || "");
+
+      const estado = /nuevo/i.test(estadoRaw)
+        ? "Nuevo"
+        : /modificado/i.test(estadoRaw)
+        ? "Modificado"
+        : "Modificado";
+
+      items.push({ nombre, tipo, estado });
+    }
+
+    console.log(`  - Items extraídos: ${items.length}`);
+
+    if (items.length > 0) {
+      piezasDetalladas.push({ grupo: titulo, items });
+      procesedTableIndices.add(i);
+      console.log(`  ✓ Tabla "${titulo}" añadida con ${items.length} items\n`);
+    } else {
+      console.log(`  ✗ Sin items válidos, saltando...\n`);
     }
   }
 
-  // Convertir grupos a estructura final
-  for (const g of fixGroups) {
-    const header = g.table[0];
-    const body = g.table.slice(1);
-
-    const colNombre = header.findIndex((c) => /nombre/i.test(c));
-    const colTipo = header.findIndex((c) => /tipo/i.test(c));
-    const colEstado = header.findIndex((c) => /(nuevo|modificado)/i.test(c));
-
-    if (colNombre === -1 || colTipo === -1 || colEstado === -1) continue;
-
-    const items = body
-      .map((r) => {
-        const nombre = normalize(r[colNombre] || "");
-        if (!nombre) return null;
-
-        const tipo = normalize(r[colTipo] || "");
-        const estadoRaw = normalize(r[colEstado] || "");
-
-        const estado = /nuevo/i.test(estadoRaw)
-          ? "Nuevo"
-          : /modificado/i.test(estadoRaw)
-          ? "Modificado"
-          : "Modificado";
-
-        return { nombre, tipo, estado };
-      })
-      .filter(Boolean) as PiezasItem[];
-
-    if (items.length) {
-      piezasDetalladas.push({ grupo: g.title, items });
-    }
-  }
+  console.log(`\n========== RESULTADO FINAL ==========`);
+  console.log(`Total de tablas de piezas detalladas encontradas: ${piezasDetalladas.length}`);
+  piezasDetalladas.forEach((grupo, idx) => {
+    console.log(`  ${idx + 1}. "${grupo.grupo}" - ${grupo.items.length} items`);
+  });
+  console.log(`====================================\n`);
 
   (function detectInstallTables() {
+    if (piezasDetalladas.length > 0) {
+      console.log(
+        `[DEBUG] detectInstallTables: omitido porque ya se detectaron ${piezasDetalladas.length} grupo(s) en "Listado de piezas detalladas"`
+      );
+      return;
+    }
+
     const KNOWN_EXTS = [
       "jar",
       "sql",
@@ -356,7 +436,19 @@ export async function parseDocxArrayBuffer(
       return "Modificado";
     };
 
-    for (const table of tables) {
+    console.log(`\n[DEBUG] detectInstallTables: Procesando ${tables.length} tablas totales`);
+    console.log(`[DEBUG] Tablas ya procesadas como piezas detalladas: ${procesedTableIndices.size}`);
+    console.log(`[DEBUG] Ignorando tablas con índices: ${Array.from(procesedTableIndices).join(", ")}`);
+
+    for (let tableIndex = 0; tableIndex < tables.length; tableIndex++) {
+      const table = tables[tableIndex];
+      
+      // IMPORTANTE: Saltar las tablas que ya fueron procesadas como piezas detalladas
+      if (procesedTableIndices.has(tableIndex)) {
+        console.log(`[DEBUG] Tabla ${tableIndex} ya procesada, saltando...`);
+        continue;
+      }
+      
       if (!table?.length) continue;
 
       let repoName = "";
@@ -435,12 +527,13 @@ export async function parseDocxArrayBuffer(
 
       if (items.length) {
         const grupo = repoName || "Piezas Detalladas";
-        if (!gruposAgregados.has(grupo)) {
+        // Verificar si ya existe este grupo
+        const exists = piezasDetalladas.some(p => p.grupo === grupo);
+        if (!exists) {
           piezasDetalladas.push({
             grupo,
             items,
           });
-          gruposAgregados.add(grupo);
         }
       }
     }
