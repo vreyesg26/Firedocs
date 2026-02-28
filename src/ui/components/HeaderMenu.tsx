@@ -15,29 +15,37 @@ export function HeaderMenu() {
   const navigate = useNavigate();
 
   return (
-    <Flex h="100%" px="lg" justify="space-between" align="center">
-      <Group onClick={() => navigate('/')}>
-        <Image src={logo} w={52} />
+    <Flex
+      h="100%"
+      justify="space-between"
+      align="center"
+      px={32}
+    >
+      <Group
+        gap={4}
+        align="center"
+        onClick={() => navigate("/")}
+        style={{ cursor: "pointer" }}
+      >
+        <Image src={logo} w={42} />
         <Title order={5}>FireDocs</Title>
       </Group>
 
-      <Group>
-        <Flex align="center" gap={10}>
-          <Title order={5}>Banco Ficohsa</Title>
-          <ActionIcon
-            variant="default"
-            size="lg"
-            onClick={() =>
-              setColorScheme(colorScheme === "dark" ? "light" : "dark")
-            }
-          >
-            {colorScheme === "dark" ? (
-              <IconSun size={20} stroke={1.5} />
-            ) : (
-              <IconMoon size={20} stroke={1.5} />
-            )}
-          </ActionIcon>
-        </Flex>
+      <Group gap={10} align="center">
+        <Title order={5}>Banco Ficohsa</Title>
+        <ActionIcon
+          variant="default"
+          size="lg"
+          onClick={() =>
+            setColorScheme(colorScheme === "dark" ? "light" : "dark")
+          }
+        >
+          {colorScheme === "dark" ? (
+            <IconSun size={20} stroke={1.5} />
+          ) : (
+            <IconMoon size={20} stroke={1.5} />
+          )}
+        </ActionIcon>
       </Group>
     </Flex>
   );

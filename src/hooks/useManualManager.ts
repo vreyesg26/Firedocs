@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { parseDocxArrayBuffer } from "@/lib/docx-parser";
-import { fillInfoGeneral } from "@/lib/docx-writer";
+import { fillManual } from "@/lib/docx-writer";
 import type {
   ManualExtract,
   UISection,
@@ -192,7 +192,7 @@ export function useManualManager() {
     if (!sections || sections.length === 0)
       throw new Error("No hay datos de Información general para exportar.");
 
-    const out = await fillInfoGeneral(templateBytes, sections);
+    const out = await fillManual(templateBytes, sections, detailedPieces);
     await window.ipc.saveDocx(out, "Manual-actualizado.docx");
   }
 

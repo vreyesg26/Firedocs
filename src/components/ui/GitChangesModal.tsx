@@ -21,30 +21,42 @@ import { mainColor } from "@/lib/utils";
 
 const COPY_ABSOLUTE = false;
 
-function kindToLabel(kind: string) {
+function kindToLabel(kind: RepoChange["kind"]) {
   switch (kind) {
     case "modified":
-      return "modified";
-    case "new":
-      return "new";
-    case "deleted":
-      return "deleted";
-    case "untracked":
-      return "untracked";
-    case "renamed":
-      return "renamed";
-    case "copied":
-      return "copied";
+      return "Modificado";
+    case "added":
     case "unknown":
-      return "nuevo";
+    case "untracked":
+      return "Nuevo";
+    case "deleted":
+      return "Eliminado";
+    case "renamed":
+      return "Renombrado";
+    case "copied":
+      return "Copiado";
     default:
       return kind;
   }
 }
 
+function isNewChange(kind: RepoChange["kind"]) {
+  return kind === "added" || kind === "unknown" || kind === "untracked";
+}
+
+function isModifiedChange(kind: RepoChange["kind"]) {
+  return kind === "modified";
+}
+
+function isVisibleChange(kind: RepoChange["kind"]) {
+  return isNewChange(kind) || isModifiedChange(kind);
+}
+
+function badgeColorByKind(kind: RepoChange["kind"]) {
+  return isNewChange(kind) ? "green" : "orange";
+}
+
 function changeLabel(ch: RepoChange) {
-  if (ch.kind === "renamed" && ch.renameFrom)
-    return `renamed: ${ch.renameFrom} → ${ch.path}`;
   return `${kindToLabel(ch.kind)}: ${ch.path}`;
 }
 
@@ -97,11 +109,7 @@ export function GitChangesModal({
     for (const repo of data) {
       const set = new Set<number>();
       repo.changes.forEach((ch, idx) => {
-        if (
-          ch.kind === "unknown" ||
-          ch.kind === "modified" ||
-          ch.kind === "renamed"
-        ) {
+        if (isVisibleChange(ch.kind)) {
           set.add(idx);
         }
       });
@@ -131,7 +139,9 @@ export function GitChangesModal({
     }
 
     const indices = selected[activeRepo.repoPath] ?? new Set<number>();
-    const chosen = activeRepo.changes.filter((_, i) => indices.has(i));
+    const chosen = activeRepo.changes.filter(
+      (ch, i) => indices.has(i) && isVisibleChange(ch.kind)
+    );
     if (chosen.length === 0) {
       onClose();
       return;
@@ -143,7 +153,8 @@ export function GitChangesModal({
       repo: activeRepo,
       changes: chosen.map((ch) => ({
         ...ch,
-        kind: ch.kind === "unknown" ? "added" : ch.kind,
+        kind:
+          ch.kind === "unknown" || ch.kind === "untracked" ? "added" : ch.kind,
       })),
       groupName: name,
     });
@@ -156,7 +167,7 @@ export function GitChangesModal({
       opened={opened}
       onClose={onClose}
       title="Listado de fuentes afectados"
-      size="lg"
+      size="xl"
       radius="md"
       centered
       withinPortal={false}
@@ -185,38 +196,50 @@ export function GitChangesModal({
             color={mainColor}
           >
             <Tabs.List>
-              {data.map((repo) => (
-                <Tabs.Tab key={repo.repoPath} value={repo.repoPath}>
-                  <Group gap="xs">
-                    <Text fw={600}>{repo.repoName}</Text>
-                    {repo.branch && (
-                      <Badge variant="light" color={mainColor}>
-                        {repo.branch}
+              {data.map((repo) => {
+                const visibleCount = repo.changes.filter((ch) =>
+                  isVisibleChange(ch.kind)
+                ).length;
+
+                return (
+                  <Tabs.Tab key={repo.repoPath} value={repo.repoPath}>
+                    <Group gap="xs">
+                      <Text fw={600}>{repo.repoName}</Text>
+                      {repo.branch && (
+                        <Badge variant="light" color={mainColor}>
+                          {repo.branch}
+                        </Badge>
+                      )}
+                      {repo.ahead || repo.behind ? (
+                        <Badge variant="outline" color={mainColor}>
+                          ↑{repo.ahead ?? 0} ↓{repo.behind ?? 0}
+                        </Badge>
+                      ) : null}
+                      <Badge color={visibleCount ? mainColor : "gray"}>
+                        {visibleCount}
                       </Badge>
-                    )}
-                    {repo.ahead || repo.behind ? (
-                      <Badge variant="outline" color={mainColor}>
-                        ↑{repo.ahead ?? 0} ↓{repo.behind ?? 0}
-                      </Badge>
-                    ) : null}
-                    <Badge color={repo.changes.length ? mainColor : "gray"}>
-                      {repo.changes.length}
-                    </Badge>
-                  </Group>
-                </Tabs.Tab>
-              ))}
+                    </Group>
+                  </Tabs.Tab>
+                );
+              })}
             </Tabs.List>
 
             {data.map((repo) => {
+              const visibleChanges = repo.changes
+                .map((ch, i) => ({ change: ch, index: i }))
+                .filter(({ change }) => isVisibleChange(change.kind));
+
               const selectedSet = selected[repo.repoPath] ?? new Set<number>();
 
               return (
                 <Tabs.Panel key={repo.repoPath} value={repo.repoPath} pt="md">
                   <ScrollArea h={340} type="hover">
-                    {repo.changes.length === 0 ? (
-                      <Text c="dimmed">Sin cambios detectados</Text>
+                    {visibleChanges.length === 0 ? (
+                      <Text c="dimmed">
+                        No hay archivos nuevos o modificados para mostrar.
+                      </Text>
                     ) : (
-                      repo.changes.map((ch, i) => {
+                      visibleChanges.map(({ change: ch, index: i }) => {
                         const pathToCopy = COPY_ABSOLUTE
                           ? joinFs(repo.repoPath, ch.path)
                           : ch.path;
@@ -229,8 +252,14 @@ export function GitChangesModal({
                             justify="space-between"
                             py={6}
                             align="center"
+                            wrap="nowrap"
                           >
-                            <Group gap="xs" align="center">
+                            <Group
+                              gap="xs"
+                              align="center"
+                              wrap="nowrap"
+                              style={{ minWidth: 0, flex: 1 }}
+                            >
                               <Checkbox
                                 checked={checked}
                                 onChange={(e) =>
@@ -242,18 +271,11 @@ export function GitChangesModal({
                                 }
                                 color={mainColor}
                               />
-                              <Badge
-                                variant="dot"
-                                color={
-                                  ch.kind === "unknown" ? "green" : "orange"
-                                }
-                              >
+                              <Badge variant="dot" color={badgeColorByKind(ch.kind)}>
                                 {ch.ext || "∅"}
                               </Badge>
-                              <Text>{changeLabel(ch)}</Text>
-                              {ch.conflicted && (
-                                <Badge color="red">conflict</Badge>
-                              )}
+                              <Text truncate>{changeLabel(ch)}</Text>
+                              {ch.conflicted && <Badge color="red">conflicto</Badge>}
                             </Group>
 
                             <CopyButton value={pathToCopy} timeout={2000}>

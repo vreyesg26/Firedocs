@@ -106,11 +106,12 @@ export function FieldsForm({ sections, onChange }: Props) {
 
                           updateField(si, fi, next);
                         }}
-                        searchable
+                        searchable={false}
                         clearable
                         radius="md"
                         comboboxProps={{
-                          transitionProps: { transition: "pop" },
+                          withinPortal: false,
+                          transitionProps: { duration: 0 },
                         }}
                       />
                     ) : kind === "select" ? (

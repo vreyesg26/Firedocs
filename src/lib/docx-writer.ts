@@ -6,7 +6,7 @@ import {
   evaluateXPathToNodes,
   evaluateXPathToNumber,
 } from "fontoxpath";
-import type { UISection } from "@/types/manual";
+import type { PiezasGrupo, UISection } from "@/types/manual";
 
 /* ============================== Namespaces ============================== */
 
@@ -58,7 +58,8 @@ function getTextDeep(n: Node | null): string {
 function setCellTextKeepParagraph(
   tc: Node | null,
   text: string,
-  doc: Document
+  doc: Document,
+  opts?: { bold?: boolean }
 ) {
   if (!tc) return;
 
@@ -73,6 +74,19 @@ function setCellTextKeepParagraph(
 
   let t = xpNode("./w:t[1]", r);
   if (!t) t = (r as Element).appendChild(doc.createElementNS(W_NS, "w:t"));
+
+  if (opts?.bold) {
+    let rPr = xpNode("./w:rPr[1]", r);
+    if (!rPr) rPr = (r as Element).appendChild(doc.createElementNS(W_NS, "w:rPr"));
+
+    let b = xpNode("./w:b[1]", rPr);
+    if (!b) b = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:b"));
+    (b as Element).setAttributeNS(W_NS, "w:val", "1");
+
+    let bCs = xpNode("./w:bCs[1]", rPr);
+    if (!bCs) bCs = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:bCs"));
+    (bCs as Element).setAttributeNS(W_NS, "w:val", "1");
+  }
 
   (t as Element).textContent = text;
   try {
@@ -318,6 +332,302 @@ function setInlineValueInCellByLabel(
   }
 }
 
+/* ========================= Piezas detalladas writer ===================== */
+
+function hasPiecesHeaderText(text: string) {
+  const n = normalizeKey(text);
+  return (
+    n.includes("nombre") &&
+    n.includes("tipo") &&
+    (n.includes("nuevo o modificado") ||
+      (n.includes("nuevo") && n.includes("modificado")))
+  );
+}
+
+function mapHeaderColumnsInRow(row: Node): {
+  nombre: number;
+  tipo: number;
+  estado: number;
+} | null {
+  const cells = xpNodes("./w:tc", row);
+  let nombre = -1;
+  let tipo = -1;
+  let estado = -1;
+
+  for (let i = 0; i < cells.length; i++) {
+    const txt = normalizeKey(getTextDeep(cells[i]));
+    if (txt === "nombre") nombre = i;
+    else if (txt === "tipo") tipo = i;
+    else if (
+      txt.includes("nuevo o modificado") ||
+      txt === "nuevo" ||
+      txt === "modificado"
+    ) {
+      estado = i;
+    }
+  }
+
+  return nombre >= 0 && tipo >= 0 && estado >= 0
+    ? { nombre, tipo, estado }
+    : null;
+}
+
+function findPiecesHeaderInfo(table: Node): {
+  headerRowIndex: number;
+  cols: { nombre: number; tipo: number; estado: number };
+} | null {
+  const rows = xpNodes("./w:tr", table);
+  for (let i = 0; i < rows.length; i++) {
+    const rowText = getTextDeep(rows[i]);
+    if (!hasPiecesHeaderText(rowText)) continue;
+    const cols = mapHeaderColumnsInRow(rows[i]);
+    if (cols) return { headerRowIndex: i, cols };
+  }
+  return null;
+}
+
+function setRowItemByColumns(
+  doc: Document,
+  row: Node,
+  item: { nombre: string; tipo: string; estado: string },
+  cols: { nombre: number; tipo: number; estado: number }
+) {
+  const cells = xpNodes("./w:tc", row);
+  if (!cells.length) return;
+  setCellTextKeepParagraph(cells[cols.nombre] ?? null, item.nombre ?? "", doc, {
+    bold: true,
+  });
+  setCellTextKeepParagraph(cells[cols.tipo] ?? null, item.tipo ?? "", doc, {
+    bold: true,
+  });
+  setCellTextKeepParagraph(cells[cols.estado] ?? null, item.estado ?? "", doc, {
+    bold: true,
+  });
+}
+
+function setParagraphTextKeepRuns(
+  p: Node | null,
+  text: string,
+  doc: Document,
+  opts?: { bold?: boolean }
+) {
+  if (!p) return;
+  let r = xpNode("./w:r[1]", p);
+  if (!r) r = (p as Element).appendChild(doc.createElementNS(W_NS, "w:r"));
+  let t = xpNode("./w:t[1]", r);
+  if (!t) t = (r as Element).appendChild(doc.createElementNS(W_NS, "w:t"));
+
+  if (opts?.bold) {
+    let rPr = xpNode("./w:rPr[1]", r);
+    if (!rPr) rPr = (r as Element).appendChild(doc.createElementNS(W_NS, "w:rPr"));
+
+    let b = xpNode("./w:b[1]", rPr);
+    if (!b) b = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:b"));
+    (b as Element).setAttributeNS(W_NS, "w:val", "1");
+
+    let bCs = xpNode("./w:bCs[1]", rPr);
+    if (!bCs) bCs = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:bCs"));
+    (bCs as Element).setAttributeNS(W_NS, "w:val", "1");
+  }
+
+  (t as Element).textContent = text;
+  try {
+    (t as Element).setAttribute("xml:space", "preserve");
+  } catch {}
+}
+
+function ensureBlankParagraphBefore(
+  container: Element,
+  node: Node,
+  doc: Document
+) {
+  const prev = node.previousSibling;
+  const hasBlankBefore =
+    prev &&
+    prev.nodeType === 1 &&
+    (prev as Element).localName === "p" &&
+    !getTextDeep(prev).trim();
+
+  if (hasBlankBefore) return;
+
+  const blank = doc.createElementNS(W_NS, "w:p");
+  container.insertBefore(blank, node);
+}
+
+type PieceBlock = { titleP: Node | null; table: Node };
+
+function getPiecesBlocksFromCell(tc: Node): PieceBlock[] {
+  const blocks: PieceBlock[] = [];
+  let prevP: Node | null = null;
+  let child: Node | null = tc.firstChild;
+
+  while (child) {
+    if (child.nodeType === 1) {
+      const el = child as Element;
+      if (el.localName === "p") {
+        prevP = el;
+      } else if (el.localName === "tbl") {
+        blocks.push({ titleP: prevP, table: el });
+        prevP = null;
+      }
+    }
+    child = child.nextSibling;
+  }
+
+  return blocks;
+}
+
+function ensureDataRowsCount(
+  table: Node,
+  headerRowIndex: number,
+  targetCount: number
+): Node[] {
+  const tblEl = table as Element;
+  let rows = xpNodes("./w:tr", table);
+  let dataRows = rows.slice(headerRowIndex + 1);
+
+  if (targetCount <= 0) {
+    for (const r of dataRows) tblEl.removeChild(r);
+    return [];
+  }
+
+  if (!dataRows.length) {
+    const headerRow = rows[headerRowIndex];
+    if (!headerRow) return [];
+    const cloned = headerRow.cloneNode(true);
+    tblEl.appendChild(cloned);
+    rows = xpNodes("./w:tr", table);
+    dataRows = rows.slice(headerRowIndex + 1);
+  }
+
+  const templateRow = (dataRows[0] ?? null)?.cloneNode(true) ?? null;
+  while (dataRows.length < targetCount && templateRow) {
+    const cloned = templateRow.cloneNode(true);
+    tblEl.appendChild(cloned);
+    dataRows.push(cloned);
+  }
+
+  while (dataRows.length > targetCount) {
+    const last = dataRows.pop();
+    if (last?.parentNode === tblEl) tblEl.removeChild(last);
+  }
+
+  return dataRows;
+}
+
+async function fillDetailedPieces(
+  template: Uint8Array,
+  piezasDetalladas: PiezasGrupo[]
+): Promise<Uint8Array> {
+  if (!piezasDetalladas.length) return template;
+
+  const zip = await JSZip.loadAsync(template);
+  const xml = await zip.file("word/document.xml")?.async("string");
+  if (!xml) throw new Error("No se encontró word/document.xml");
+
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const mainTable = xpNodes("//w:tbl", doc).find((tbl) => {
+    const tx = normalizeKey(getTextDeep(tbl));
+    return (
+      tx.includes("listado de piezas detalladas (nuevos / modificados)") &&
+      tx.includes("listado de piezas detalladas para bugfix")
+    );
+  });
+  if (!mainTable) return template;
+
+  const rows = xpNodes("./w:tr", mainTable);
+  let sectionHeaderIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const tx = normalizeKey(getTextDeep(rows[i]));
+    if (tx.includes("listado de piezas detalladas (nuevos / modificados)")) {
+      sectionHeaderIndex = i;
+      break;
+    }
+  }
+  if (sectionHeaderIndex < 0) return template;
+
+  const contentRow = rows[sectionHeaderIndex + 1] ?? null;
+  if (!contentRow) return template;
+  const contentCell = xpNode("./w:tc[1]", contentRow);
+  if (!contentCell) return template;
+
+  let blocks = getPiecesBlocksFromCell(contentCell);
+  if (!blocks.length) return template;
+
+  const trailingEmptyP = (() => {
+    const ps = xpNodes("./w:p", contentCell);
+    for (let i = ps.length - 1; i >= 0; i--) {
+      if (!getTextDeep(ps[i]).trim()) return ps[i];
+    }
+    return null;
+  })();
+
+  const contentCellEl = contentCell as Element;
+
+  if (piezasDetalladas.length > blocks.length) {
+    const last = blocks[blocks.length - 1];
+    for (let i = blocks.length; i < piezasDetalladas.length; i++) {
+      const titleClone = last.titleP ? last.titleP.cloneNode(true) : null;
+      const tableClone = last.table.cloneNode(true);
+      if (titleClone) {
+        if (trailingEmptyP) contentCellEl.insertBefore(titleClone, trailingEmptyP);
+        else contentCellEl.appendChild(titleClone);
+      }
+      if (trailingEmptyP) contentCellEl.insertBefore(tableClone, trailingEmptyP);
+      else contentCellEl.appendChild(tableClone);
+      blocks.push({ titleP: titleClone, table: tableClone });
+    }
+  }
+
+  if (piezasDetalladas.length < blocks.length) {
+    for (let i = blocks.length - 1; i >= piezasDetalladas.length; i--) {
+      const b = blocks[i];
+      if (b.table.parentNode === contentCellEl) contentCellEl.removeChild(b.table);
+      if (b.titleP && b.titleP.parentNode === contentCellEl) contentCellEl.removeChild(b.titleP);
+    }
+    blocks = blocks.slice(0, piezasDetalladas.length);
+  }
+
+  for (let i = 0; i < piezasDetalladas.length; i++) {
+    const group = piezasDetalladas[i];
+    const block = blocks[i];
+    const headerInfo = findPiecesHeaderInfo(block.table);
+    if (!headerInfo) continue;
+
+    if (!block.titleP) {
+      const newP = doc.createElementNS(W_NS, "w:p");
+      contentCellEl.insertBefore(newP, block.table);
+      block.titleP = newP;
+    }
+
+    if (block.titleP) {
+      if (i > 0) {
+        ensureBlankParagraphBefore(contentCellEl, block.titleP, doc);
+      }
+      setParagraphTextKeepRuns(
+        block.titleP,
+        group.grupo || `Grupo ${i + 1}`,
+        doc,
+        { bold: true }
+      );
+    }
+
+    const dataRows = ensureDataRowsCount(
+      block.table,
+      headerInfo.headerRowIndex,
+      group.items.length
+    );
+    for (let j = 0; j < dataRows.length; j++) {
+      const item = group.items[j] ?? { nombre: "", tipo: "", estado: "" };
+      setRowItemByColumns(doc, dataRows[j], item, headerInfo.cols);
+    }
+  }
+
+  const outXml = new XMLSerializer().serializeToString(doc);
+  zip.file("word/document.xml", outXml);
+  return await zip.generateAsync({ type: "uint8array" });
+}
+
 /* ================================ Public API ============================ */
 
 export async function fillInfoGeneral(
@@ -411,4 +721,13 @@ export async function fillInfoGeneral(
   const outXml = new XMLSerializer().serializeToString(doc);
   zip.file("word/document.xml", outXml);
   return await zip.generateAsync({ type: "uint8array" });
+}
+
+export async function fillManual(
+  template: Uint8Array,
+  sections: UISection[],
+  piezasDetalladas: PiezasGrupo[]
+): Promise<Uint8Array> {
+  const withInfo = await fillInfoGeneral(template, sections);
+  return await fillDetailedPieces(withInfo, piezasDetalladas);
 }
