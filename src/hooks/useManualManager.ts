@@ -57,6 +57,118 @@ export function useManualManager() {
 
   const [detailedPieces, setDetailedPieces] = useState<PiezasGrupo[]>([]);
 
+  async function loadFromTemplateBytes(bytes: Uint8Array) {
+    const parsed = await parseDocxArrayBuffer(bytes);
+
+    const normKey = (s: string) =>
+      (s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const toCountryCodes = (v: string | string[]) => {
+      const raw = Array.isArray(v)
+        ? v
+        : String(v ?? "")
+            .split(/[,\s/;|]+/)
+            .filter(Boolean);
+
+      const out = new Set<string>();
+      for (const s0 of raw) {
+        const s = normKey(s0).toUpperCase();
+        if (s.includes("HONDURAS") || /\bHN\b/.test(s)) out.add("HN");
+        else if (s.includes("NICARAGUA") || /\bNI\b/.test(s)) out.add("NI");
+        else if (s.includes("GUATEMALA") || /\bGT\b/.test(s)) out.add("GT");
+        else if (s.includes("PANAMA") || /\bPA\b/.test(s)) out.add("PA");
+        else if (s.includes("REG")) out.add("REG");
+      }
+      return Array.from(out.size ? out : ["REG"]);
+    };
+
+    const asYesNo = (v: unknown) => {
+      const u = String(v ?? "")
+        .toUpperCase()
+        .replace("SÍ", "SI");
+      return u === "SI" ? "SI" : "NO";
+    };
+
+    const dedup: UISection[] = Array.from(
+      (parsed.seccionesReconocidas || [])
+        .reduce((m, s) => {
+          m.set(s.id, s);
+          return m;
+        }, new Map<string, UISection>())
+        .values()
+    );
+
+    const norm: UISection[] = dedup.map((sec) => {
+      if (sec.id !== "informacion-general") return sec;
+
+      const fields: UIField[] = sec.fields.map((f0) => {
+        const key = normKey(f0.key);
+
+        if (key.includes("pais-afectado"))
+          return {
+            key: f0.key,
+            label: f0.label,
+            kind: "multiselect",
+            options: [...countryOptions],
+            value: toCountryCodes(f0.value as any),
+          };
+
+        if (key === "otros" || key === "otros:") {
+          const txt = typeof f0.value === "string" ? f0.value : "";
+          let clean = txt.replace(/^\s*otros\s*:?\s*/i, "");
+          if (/^\s*[:]*\s*$/.test(clean)) clean = "";
+          return {
+            key: f0.key,
+            label: f0.label,
+            kind: "text",
+            value: clean,
+          };
+        }
+
+        const isYesNo =
+          key.includes("afecta dwh") ||
+          key.includes("afecta cierre") ||
+          key.includes("afecta robot") ||
+          key.includes("notifico al noc") ||
+          key.includes("es regulatorio") ||
+          key.includes("participa proveedor");
+
+        if (isYesNo)
+          return {
+            key: f0.key,
+            label: f0.label,
+            kind: "select",
+            options: [
+              { value: "SI", label: "SI" },
+              { value: "NO", label: "NO" },
+            ],
+            value: asYesNo(f0.value),
+          };
+
+        return {
+          key: f0.key,
+          label: f0.label,
+          kind: f0.kind ?? "text",
+          options: f0.options,
+          value: f0.value,
+        };
+      });
+
+      return { ...sec, fields };
+    });
+
+    setTemplateBytes(bytes);
+    setData(parsed);
+    setSections(norm);
+    setDetailedPieces(parsed.piezasDetalladas ?? []);
+    return true;
+  }
+
   async function handleOpen() {
     try {
       const res = await window.ipc.selectDocx();
@@ -68,117 +180,7 @@ export function useManualManager() {
         anyToUint8((res as any).base64);
 
       if (!bytes) throw new Error("No se recibió un buffer válido del IPC");
-
-      setTemplateBytes(bytes);
-
-      const parsed = await parseDocxArrayBuffer(bytes);
-
-      const normKey = (s: string) =>
-        (s || "")
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-
-      const toCountryCodes = (v: string | string[]) => {
-        const raw = Array.isArray(v)
-          ? v
-          : String(v ?? "")
-              .split(/[,\s/;|]+/)
-              .filter(Boolean);
-
-        const out = new Set<string>();
-        for (const s0 of raw) {
-          const s = normKey(s0).toUpperCase();
-          if (s.includes("HONDURAS") || /\bHN\b/.test(s)) out.add("HN");
-          else if (s.includes("NICARAGUA") || /\bNI\b/.test(s)) out.add("NI");
-          else if (s.includes("GUATEMALA") || /\bGT\b/.test(s)) out.add("GT");
-          else if (s.includes("PANAMA") || /\bPA\b/.test(s)) out.add("PA");
-          else if (s.includes("REG")) out.add("REG");
-        }
-        return Array.from(out.size ? out : ["REG"]);
-      };
-
-      const asYesNo = (v: unknown) => {
-        const u = String(v ?? "")
-          .toUpperCase()
-          .replace("SÍ", "SI");
-        return u === "SI" ? "SI" : "NO";
-      };
-
-      const dedup: UISection[] = Array.from(
-        (parsed.seccionesReconocidas || [])
-          .reduce((m, s) => {
-            m.set(s.id, s);
-            return m;
-          }, new Map<string, UISection>())
-          .values()
-      );
-
-      const norm: UISection[] = dedup.map((sec) => {
-        if (sec.id !== "informacion-general") return sec;
-
-        const fields: UIField[] = sec.fields.map((f0) => {
-          const key = normKey(f0.key);
-
-          if (key.includes("pais-afectado"))
-            return {
-              key: f0.key,
-              label: f0.label,
-              kind: "multiselect",
-              options: [...countryOptions],
-              value: toCountryCodes(f0.value as any),
-            };
-
-          if (key === "otros" || key === "otros:") {
-            const txt = typeof f0.value === "string" ? f0.value : "";
-            let clean = txt.replace(/^\s*otros\s*:?\s*/i, "");
-            if (/^\s*[:]*\s*$/.test(clean)) clean = "";
-            return {
-              key: f0.key,
-              label: f0.label,
-              kind: "text",
-              value: clean,
-            };
-          }
-
-          const isYesNo =
-            key.includes("afecta dwh") ||
-            key.includes("afecta cierre") ||
-            key.includes("afecta robot") ||
-            key.includes("notifico al noc") ||
-            key.includes("es regulatorio") ||
-            key.includes("participa proveedor");
-
-          if (isYesNo)
-            return {
-              key: f0.key,
-              label: f0.label,
-              kind: "select",
-              options: [
-                { value: "SI", label: "SI" },
-                { value: "NO", label: "NO" },
-              ],
-              value: asYesNo(f0.value),
-            };
-
-          return {
-            key: f0.key,
-            label: f0.label,
-            kind: f0.kind ?? "text",
-            options: f0.options,
-            value: f0.value,
-          };
-        });
-
-        return { ...sec, fields };
-      });
-
-      setData(parsed);
-      setSections(norm);
-
-      setDetailedPieces(parsed.piezasDetalladas ?? []);
+      await loadFromTemplateBytes(bytes);
 
       return true;
     } catch (e: any) {
@@ -212,6 +214,7 @@ export function useManualManager() {
     setGitLoading,
 
     handleOpen,
+    loadFromTemplateBytes,
     handleExport,
   };
 }

@@ -37,6 +37,41 @@ declare global {
       discover(roots?: string[]): Promise<string[]>;
       scan(repoPaths: string[]): Promise<import("./git").RepoStatus[]>;
       scanDiscovered(): Promise<import("./git").RepoStatus[]>;
+
+      // Templates
+      templateList(): Promise<
+        Array<{
+          id: string;
+          fileName: string;
+          filePath: string;
+          name: string;
+          sourceFileName: string;
+          createdAt: string;
+          updatedAt: string;
+          size?: number;
+        }>
+      >;
+      templateImportDocx(): Promise<
+        | {
+            id: string;
+            fileName: string;
+            filePath: string;
+            name: string;
+            sourceFileName: string;
+            createdAt: string;
+            updatedAt: string;
+          }
+        | null
+      >;
+      templateRead(id: string): Promise<
+        | {
+            id: string;
+            name: string;
+            sourceFileName: string;
+            bytes: Uint8Array;
+          }
+        | null
+      >;
     };
 
     // ⛔️ Eliminamos window.git para evitar confusión.

@@ -20,4 +20,9 @@ contextBridge.exposeInMainWorld("ipc", {
     ipcRenderer.invoke("git:discover", roots),
   scan: (repoPaths: string[]) => ipcRenderer.invoke("git:scan", repoPaths),
   scanDiscovered: () => ipcRenderer.invoke("git:scan-discovered"),
+
+  // --- Templates (.fd) ---
+  templateList: () => ipcRenderer.invoke("template:list"),
+  templateImportDocx: () => ipcRenderer.invoke("template:import-docx"),
+  templateRead: (id: string) => ipcRenderer.invoke("template:read", id),
 });

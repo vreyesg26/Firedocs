@@ -4,6 +4,7 @@ import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { simpleGit } from "simple-git";
 import type { SimpleGit, StatusResult } from "simple-git";
@@ -23,7 +24,10 @@ function getPreloadPath() {
 /** Busca un index.html válido para producción (ajústalo si tu build es distinto) */
 function getProdIndexFile() {
   const candidates = [
+    path.join(process.cwd(), "dist-react", "index.html"),
     path.join(process.cwd(), "dist", "index.html"),
+    path.join(app.getAppPath(), "dist-react", "index.html"),
+    path.join(__dirname, "../dist-react", "index.html"),
     path.join(__dirname, "../dist", "index.html"),
     path.join(__dirname, "../renderer", "index.html"),
   ];
@@ -60,6 +64,42 @@ function mapStatus(
   if (code.includes("R")) return "Renombrado";
   if (code.includes("D")) return "Eliminado";
   return "Desconocido";
+}
+
+type StoredTemplateFile = {
+  version: 1;
+  name: string;
+  sourceFileName: string;
+  createdAt: string;
+  updatedAt: string;
+  docxBase64: string;
+};
+
+function buildTemplateId() {
+  const short = randomUUID().split("-")[0];
+  return `tpl-${Date.now()}-${short}`;
+}
+
+function templatesDir() {
+  if (app.isPackaged) {
+    return path.join(app.getPath("userData"), "templates");
+  }
+  return path.join(process.cwd(), "templates");
+}
+
+async function ensureTemplatesDir() {
+  await fsp.mkdir(templatesDir(), { recursive: true });
+}
+
+async function readStoredTemplate(filePath: string): Promise<StoredTemplateFile | null> {
+  try {
+    const raw = await fsp.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as StoredTemplateFile;
+    if (!parsed?.docxBase64 || !parsed?.name) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 // -------------------- Ventana --------------------
@@ -323,13 +363,111 @@ function registerPickReposHandler() {
   });
 }
 
-// -------------------- App lifecycle --------------------
-app.whenReady().then(() => {
-  // Registra handlers de forma idempotente (evita duplicados en HMR)
-  registerDocxIpcHandlers();
-  registerPickReposHandler();
-  registerGitIpcHandlers();
+function registerTemplateIpcHandlers() {
+  ipcMain.removeHandler("template:list");
+  ipcMain.removeHandler("template:import-docx");
+  ipcMain.removeHandler("template:read");
 
+  ipcMain.handle("template:list", async () => {
+    await ensureTemplatesDir();
+    const dir = templatesDir();
+    const files = (await fsp.readdir(dir)).filter((f) => f.endsWith(".fd"));
+
+    const list = await Promise.all(
+      files.map(async (fileName) => {
+        const filePath = path.join(dir, fileName);
+        const st = await fsp.stat(filePath);
+        const stored = await readStoredTemplate(filePath);
+        return {
+          id: fileName,
+          fileName,
+          filePath,
+          name: stored?.name ?? fileName.replace(/\.fd$/i, ""),
+          sourceFileName: stored?.sourceFileName ?? "",
+          createdAt: stored?.createdAt ?? st.birthtime.toISOString(),
+          updatedAt: stored?.updatedAt ?? st.mtime.toISOString(),
+          size: st.size,
+        };
+      })
+    );
+
+    list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return list;
+  });
+
+  ipcMain.handle("template:import-docx", async () => {
+    await ensureTemplatesDir();
+
+    const pick = await dialog.showOpenDialog({
+      title: "Selecciona una plantilla Word",
+      filters: [{ name: "Word", extensions: ["docx"] }],
+      properties: ["openFile"],
+    });
+    if (pick.canceled || !pick.filePaths[0]) return null;
+
+    const sourcePath = pick.filePaths[0];
+    const sourceName = path.basename(sourcePath);
+    const displayName = path.basename(sourcePath, path.extname(sourcePath)) || "Plantilla";
+
+    const docx = await fsp.readFile(sourcePath);
+    const now = new Date().toISOString();
+    const payload: StoredTemplateFile = {
+      version: 1,
+      name: displayName,
+      sourceFileName: sourceName,
+      createdAt: now,
+      updatedAt: now,
+      docxBase64: docx.toString("base64"),
+    };
+
+    const dir = templatesDir();
+    let candidate = `${buildTemplateId()}.fd`;
+    while (existsSync(path.join(dir, candidate))) {
+      candidate = `${buildTemplateId()}.fd`;
+    }
+
+    const target = path.join(dir, candidate);
+    await fsp.writeFile(target, JSON.stringify(payload, null, 2), "utf8");
+
+    return {
+      id: candidate,
+      fileName: candidate,
+      filePath: target,
+      name: payload.name,
+      sourceFileName: payload.sourceFileName,
+      createdAt: payload.createdAt,
+      updatedAt: payload.updatedAt,
+    };
+  });
+
+  ipcMain.handle("template:read", async (_evt, id: string) => {
+    if (!id) return null;
+    await ensureTemplatesDir();
+    const filePath = path.join(templatesDir(), id);
+    if (!existsSync(filePath)) return null;
+
+    const stored = await readStoredTemplate(filePath);
+    if (!stored) return null;
+
+    const bytes = Buffer.from(stored.docxBase64, "base64");
+    return {
+      id,
+      name: stored.name,
+      sourceFileName: stored.sourceFileName,
+      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    };
+  });
+}
+
+// -------------------- App lifecycle --------------------
+// Registra handlers en carga de módulo para que estén disponibles
+// incluso antes de crear la ventana (evita carreras en dev/hot reload).
+registerDocxIpcHandlers();
+registerPickReposHandler();
+registerGitIpcHandlers();
+registerTemplateIpcHandlers();
+
+app.whenReady().then(() => {
   createWindow();
 
   app.on("activate", () => {

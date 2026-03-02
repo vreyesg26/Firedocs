@@ -3,6 +3,7 @@ import {
   Card,
   Center,
   Container,
+  Flex,
   Group,
   SimpleGrid,
   Text,
@@ -30,7 +31,11 @@ export default function HomePage() {
       radius="md"
       className={classes.card}
       padding="xl"
-      onClick={feature.key === "import" ? onImportClick : undefined}
+      onClick={
+        feature.key === "import"
+          ? onImportClick
+          : () => navigate("/templates")
+      }
     >
       <feature.icon size={50} stroke={1.5} color={mainColor} />
       <Text fz="lg" fw={500} className={classes.cardTitle} mt="md">
@@ -57,7 +62,7 @@ export default function HomePage() {
         </Title>
 
         <Text c="dimmed" className={classes.description} ta="center" mt="md">
-          Este sistema te permite crear manuales de instalación de manera rápida
+          Este sistema le permite crear manuales de instalación de manera rápida
           y sencilla, optimizando su tiempo y recursos.
         </Text>
         <SimpleGrid
@@ -68,12 +73,12 @@ export default function HomePage() {
         >
           {features}
         </SimpleGrid>
-        {/* <Group justify="center" gap="xs" mt="lg">
+        <Group justify="center" gap="xs" mt="lg">
           <Flex align='center' gap={4}>
             <Text>Desarrollado por</Text>
             <Text fw={700} c={mainColor}>Victor Reyes</Text>
           </Flex>
-        </Group> */}
+        </Group>
       </Container>
     </Center>
   );
