@@ -1,4 +1,5 @@
 {
+  "productName": "FireDocs",
   "appId": "com.vrdev.installation-manuals-generator",
   "files": ["dist-electron", "dist-react"],
   "extraResources": [

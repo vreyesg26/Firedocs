@@ -27,9 +27,9 @@ export const mainButtonsData: HomeFeatureProps[] = [
   },
   {
     key: "import",
-    title: "Importar nueva plantilla",
+    title: "Importar documento",
     description:
-      "Si ya tienes una plantilla personalizada, puedes importarla fácilmente para adaptarla y mejorarla según tus necesidades.",
+      "Si ya tienes un documento iniciado, puedes importarlo fácilmente para editarlo según tus necesidades.",
     icon: IconUpload,
   },
 ];

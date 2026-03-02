@@ -1,5 +1,5 @@
 // electron/main.ts
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -584,6 +584,10 @@ registerGitIpcHandlers();
 registerTemplateIpcHandlers();
 
 app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    Menu.setApplicationMenu(null);
+  }
+
   createWindow();
 
   app.on("activate", () => {
