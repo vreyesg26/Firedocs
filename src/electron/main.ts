@@ -15,6 +15,28 @@ const __dirname = path.dirname(__filename);
 const isDev =
   !!process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === "development";
 
+function resolveGitBinary() {
+  if (process.platform !== "win32") return "git";
+
+  const candidates = [
+    process.env.FIREDOCS_GIT_PATH,
+    app.isPackaged
+      ? path.join(process.resourcesPath, "git", "windows", "cmd", "git.exe")
+      : path.join(process.cwd(), "vendor", "portable-git", "windows", "cmd", "git.exe"),
+    app.isPackaged
+      ? path.join(process.resourcesPath, "git", "windows", "bin", "git.exe")
+      : path.join(process.cwd(), "vendor", "portable-git", "windows", "bin", "git.exe"),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return "git";
+}
+
+const GIT_BINARY = resolveGitBinary();
+
 /** Resuelve y loguea la ruta del preload compilado */
 function getPreloadPath() {
   const p = path.join(__dirname, "preload.js");
@@ -135,6 +157,32 @@ function createWindow() {
 // -------------------- Descubrimiento & Scan de repos (AUTOMÁTICO) --------------------
 let CACHED_ROOTS: string[] = [];
 let CACHED_REPOS: string[] = [];
+let WATCHED_REPOS = new Set<string>();
+let WATCH_INTERVAL: NodeJS.Timeout | null = null;
+let WATCH_IN_FLIGHT = false;
+const WATCH_REPO_SIGNATURES = new Map<string, string>();
+
+function repoSignature(repo: RepoStatus) {
+  return JSON.stringify({
+    branch: repo.branch ?? "",
+    ahead: repo.ahead ?? 0,
+    behind: repo.behind ?? 0,
+    changes: repo.changes.map((ch) => [
+      ch.path,
+      ch.kind,
+      ch.index,
+      ch.worktree,
+      Boolean(ch.conflicted),
+      ch.renameFrom ?? "",
+    ]),
+  });
+}
+
+function sendGitWatchUpdate(statuses: RepoStatus[]) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("git:watch-update", statuses);
+  }
+}
 
 const IGNORE_DIRS = new Set([
   "node_modules",
@@ -236,7 +284,7 @@ async function scanReposSimple(repoPaths: string[]): Promise<RepoStatus[]> {
   const out: RepoStatus[] = [];
   for (const repoPath of repoPaths) {
     try {
-      const git: SimpleGit = simpleGit({ baseDir: repoPath });
+      const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: GIT_BINARY });
       const st: StatusResult = await git.status();
       const conflictedSet = new Set<string>(st.conflicted ?? []);
       out.push({
@@ -269,6 +317,44 @@ async function scanReposSimple(repoPaths: string[]): Promise<RepoStatus[]> {
   return out;
 }
 
+async function pollWatchedRepos(forceEmit = false) {
+  if (WATCH_IN_FLIGHT || WATCHED_REPOS.size === 0) return;
+  WATCH_IN_FLIGHT = true;
+
+  try {
+    const repos = Array.from(WATCHED_REPOS);
+    const statuses = await scanReposSimple(repos);
+    let changed = forceEmit;
+
+    for (const status of statuses) {
+      const sig = repoSignature(status);
+      if (WATCH_REPO_SIGNATURES.get(status.repoPath) !== sig) changed = true;
+      WATCH_REPO_SIGNATURES.set(status.repoPath, sig);
+    }
+
+    if (changed) sendGitWatchUpdate(statuses);
+  } catch (err) {
+    console.warn("[GIT] watcher poll error", err);
+  } finally {
+    WATCH_IN_FLIGHT = false;
+  }
+}
+
+function ensureWatchLoop() {
+  if (WATCH_INTERVAL || WATCHED_REPOS.size === 0) return;
+  WATCH_INTERVAL = setInterval(() => {
+    void pollWatchedRepos(false);
+  }, 2000);
+}
+
+function stopWatchLoopIfIdle() {
+  if (WATCHED_REPOS.size > 0) return;
+  if (WATCH_INTERVAL) {
+    clearInterval(WATCH_INTERVAL);
+    WATCH_INTERVAL = null;
+  }
+}
+
 // === Handlers GIT (idempotentes) ===
 function registerGitIpcHandlers() {
   // Limpia handlers previos (útil con hot reload en dev)
@@ -276,6 +362,8 @@ function registerGitIpcHandlers() {
   ipcMain.removeHandler("git:discover");
   ipcMain.removeHandler("git:scan");
   ipcMain.removeHandler("git:scan-discovered");
+  ipcMain.removeHandler("git:watch-start");
+  ipcMain.removeHandler("git:watch-stop");
 
   ipcMain.handle("git:choose-roots", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -305,6 +393,34 @@ function registerGitIpcHandlers() {
   ipcMain.handle("git:scan-discovered", async () => {
     if (!CACHED_REPOS.length) return [];
     return await scanReposSimple(CACHED_REPOS);
+  });
+
+  ipcMain.handle("git:watch-start", async (_evt, repoPaths: string[]) => {
+    if (!Array.isArray(repoPaths)) return false;
+
+    for (const repoPath of repoPaths) {
+      if (!repoPath) continue;
+      WATCHED_REPOS.add(repoPath);
+    }
+
+    ensureWatchLoop();
+    await pollWatchedRepos(true);
+    return true;
+  });
+
+  ipcMain.handle("git:watch-stop", async (_evt, repoPaths?: string[]) => {
+    if (Array.isArray(repoPaths) && repoPaths.length > 0) {
+      for (const repoPath of repoPaths) {
+        WATCHED_REPOS.delete(repoPath);
+        WATCH_REPO_SIGNATURES.delete(repoPath);
+      }
+    } else {
+      WATCHED_REPOS = new Set<string>();
+      WATCH_REPO_SIGNATURES.clear();
+    }
+
+    stopWatchLoopIfIdle();
+    return true;
   });
 }
 
@@ -476,5 +592,9 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  if (WATCH_INTERVAL) {
+    clearInterval(WATCH_INTERVAL);
+    WATCH_INTERVAL = null;
+  }
   if (process.platform !== "darwin") app.quit();
 });

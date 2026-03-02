@@ -10,13 +10,14 @@
     "transpile:electron": "tsc --project src/electron/tsconfig.json",
     "transpile:electron:watch": "tsc --project src/electron/tsconfig.json --watch",
     "dev:electron": "wait-on tcp:5123 dist-electron/main.js dist-electron/preload.js && cross-env NODE_ENV=development VITE_DEV_SERVER_URL=http://localhost:5123 electron .",
+    "prepare:portable-git": "node scripts/prepare-portable-git.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "dist:mac": "npm run transpile:electron && npm run build && electron-builder --mac --arm64",
     "dist:mac:app": "npm run transpile:electron && npm run build && electron-builder --mac --arm64 --dir",
     "run:mac:app": "open dist/mac-arm64/FireDocs.app",
-    "dist:win": "npm run transpile:electron && npm run build && electron-builder --win --x64",
+    "dist:win": "npm run prepare:portable-git && npm run transpile:electron && npm run build && electron-builder --win --x64",
     "dist:linux": "npm run transpile:electron && npm run build && electron-builder --linux --x64"
   },
   "dependencies": {

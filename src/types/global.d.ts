@@ -37,6 +37,11 @@ declare global {
       discover(roots?: string[]): Promise<string[]>;
       scan(repoPaths: string[]): Promise<import("./git").RepoStatus[]>;
       scanDiscovered(): Promise<import("./git").RepoStatus[]>;
+      startGitWatch(repoPaths: string[]): Promise<boolean>;
+      stopGitWatch(repoPaths?: string[]): Promise<boolean>;
+      onGitWatchUpdate(
+        callback: (statuses: import("./git").RepoStatus[]) => void,
+      ): () => void;
 
       // Templates
       templateList(): Promise<

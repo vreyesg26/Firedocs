@@ -1,4 +1,4 @@
-name: Build FireDocs
+name: Build FireDocs (Windows)
 
 on:
   push:
@@ -35,30 +35,3 @@ jobs:
             dist/*.zip
             dist/latest*.yml
             dist/*.blockmap
-
-  mac:
-    name: macOS (dmg)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install deps
-        run: npm ci
-
-      - name: Build macOS
-        run: npm run dist:mac
-
-      - name: Upload artifacts (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: FireDocs-macos
-          path: |
-            dist/*.dmg
-            dist/*.zip

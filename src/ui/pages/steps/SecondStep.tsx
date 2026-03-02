@@ -98,6 +98,7 @@ export const SecondStep = () => {
   const [gitModalOpen, setGitModalOpen] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitData, setGitData] = useState<RepoStatus[]>([]);
+  const [gitRepos, setGitRepos] = useState<string[]>([]);
   const [gitTargetMode, setGitTargetMode] = useState<GitTargetMode>("create");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [groupToDeleteIndex, setGroupToDeleteIndex] = useState<number | null>(
@@ -133,6 +134,17 @@ export const SecondStep = () => {
     }
     setScrollToLastGroup(false);
   }, [groups.length, scrollToLastGroup]);
+
+  useEffect(() => {
+    const unsubscribe = window.ipc.onGitWatchUpdate((statuses) => {
+      setGitData(statuses ?? []);
+    });
+
+    return () => {
+      unsubscribe?.();
+      void window.ipc.stopGitWatch();
+    };
+  }, []);
 
   function mapChangeToItem(ch: RepoChange): PiezasItem {
     const name = ch.path.split(/[\\/]/).pop() || ch.path || "Objeto sin nombre";
@@ -190,6 +202,13 @@ export const SecondStep = () => {
       const picks = await window.ipc.pickRepos();
       const paths = (picks ?? []).map((p: any) => p.repoPath);
       if (!paths.length) return;
+
+      if (gitRepos.length) {
+        await window.ipc.stopGitWatch(gitRepos);
+      }
+
+      setGitRepos(paths);
+      await window.ipc.startGitWatch(paths);
 
       const statuses = await window.ipc.scan(paths);
       setGitTargetMode(targetMode);

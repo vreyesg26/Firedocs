@@ -20,6 +20,20 @@ contextBridge.exposeInMainWorld("ipc", {
     ipcRenderer.invoke("git:discover", roots),
   scan: (repoPaths: string[]) => ipcRenderer.invoke("git:scan", repoPaths),
   scanDiscovered: () => ipcRenderer.invoke("git:scan-discovered"),
+  startGitWatch: (repoPaths: string[]) =>
+    ipcRenderer.invoke("git:watch-start", repoPaths),
+  stopGitWatch: (repoPaths?: string[]) =>
+    ipcRenderer.invoke("git:watch-stop", repoPaths),
+  onGitWatchUpdate: (
+    callback: (statuses: import("../types/git.js").RepoStatus[]) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      statuses: import("../types/git.js").RepoStatus[]
+    ) => callback(statuses ?? []);
+    ipcRenderer.on("git:watch-update", listener);
+    return () => ipcRenderer.removeListener("git:watch-update", listener);
+  },
 
   // --- Templates (.fd) ---
   templateList: () => ipcRenderer.invoke("template:list"),
