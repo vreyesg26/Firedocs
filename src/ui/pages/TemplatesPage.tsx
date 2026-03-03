@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Alert,
   Badge,
   Box,
   Button,
@@ -16,7 +15,12 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconFileDescription, IconPlus, IconEye, IconArrowRight } from "@tabler/icons-react";
+import {
+  IconFileDescription,
+  IconPlus,
+  IconEye,
+  IconArrowRight,
+} from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
 import { parseDocxArrayBuffer } from "@/lib/docx-parser";
 import { mainColor } from "@/lib/utils";
@@ -71,7 +75,7 @@ export default function TemplatesPage() {
 
   const selected = useMemo(
     () => templates.find((t) => t.id === selectedId) ?? null,
-    [templates, selectedId]
+    [templates, selectedId],
   );
 
   async function refreshTemplates() {
@@ -177,22 +181,18 @@ export default function TemplatesPage() {
       <Divider mb="lg" />
 
       {!hasTemplates ? (
-        <Paper withBorder radius="md" p="xl">
-          <Stack align="center" gap="md" py="xl">
-            <Alert color="blue" title="No hay plantillas guardadas" w="100%">
-              Carga un archivo Word para crear tu primera plantilla en formato
-              interno <strong>.fd</strong>.
-            </Alert>
-            <Button
-              leftSection={<IconPlus size={16} />}
-              onClick={handleImportTemplate}
-              loading={importing}
-              color={mainColor}
-            >
-              Cargar primera plantilla
-            </Button>
-          </Stack>
-        </Paper>
+        <Flex
+          mt="md"
+          mih="60vh"
+          align="center"
+          justify="center"
+          style={{ width: "100%" }}
+        >
+          <Text c="dimmed" ta="center" size="md">
+            Las plantillas que cargues aparecerán aquí. Puedes importar archivos
+            DOCX para usarlos como base de tus manuales de instalación.
+          </Text>
+        </Flex>
       ) : (
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
           <Stack>
@@ -241,7 +241,9 @@ export default function TemplatesPage() {
               </Group>
 
               {!selected ? (
-                <Text c="dimmed">Selecciona una plantilla para ver detalles.</Text>
+                <Text c="dimmed">
+                  Selecciona una plantilla para ver detalles.
+                </Text>
               ) : previewLoading ? (
                 <Group justify="center" py="xl">
                   <Loader size="sm" />
@@ -283,7 +285,10 @@ export default function TemplatesPage() {
                       {preview.tables.slice(0, 6).map((table, ti) => (
                         <Box
                           key={`t-${ti}`}
-                          style={{ border: "1px solid #333", overflowX: "auto" }}
+                          style={{
+                            border: "1px solid #333",
+                            overflowX: "auto",
+                          }}
                         >
                           <table
                             style={{

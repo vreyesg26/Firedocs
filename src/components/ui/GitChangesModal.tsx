@@ -60,6 +60,12 @@ function changeLabel(ch: RepoChange) {
   return `${kindToLabel(ch.kind)}: ${ch.path}`;
 }
 
+function typeBadgeLabel(ch: RepoChange) {
+  const raw = (ch.ext || "").replace(/^\./, "").toUpperCase();
+  if (raw === "XQ" || raw === "XQY") return "XQUERY";
+  return raw || "∅";
+}
+
 function joinFs(a: string, b: string) {
   if (!a) return b;
   const sep = a.includes("\\") ? "\\" : "/";
@@ -272,7 +278,7 @@ export function GitChangesModal({
                                 color={mainColor}
                               />
                               <Badge variant="dot" color={badgeColorByKind(ch.kind)}>
-                                {ch.ext || "∅"}
+                                {typeBadgeLabel(ch)}
                               </Badge>
                               <Text truncate>{changeLabel(ch)}</Text>
                               {ch.conflicted && <Badge color="red">conflicto</Badge>}

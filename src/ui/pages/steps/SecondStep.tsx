@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Accordion,
   ActionIcon,
   Button,
+  Card,
   Divider,
   Flex,
+  Group,
+  Menu,
   Modal,
   ScrollArea,
   Select,
@@ -25,8 +29,10 @@ import {
   IconArrowUp,
   IconArrowsSort,
   IconBrandGithub,
+  IconDots,
   IconEdit,
   IconPlus,
+  IconRotateClockwise,
   IconTrash,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
@@ -34,11 +40,12 @@ import { mainColor } from "@/lib/utils";
 type NewTableView = "options" | "manual";
 type ManualMode = "create" | "edit";
 type GitTargetMode = "create" | "edit";
+type RepoPick = { repoName: string; repoPath: string };
 
 type ManualRow = {
   nombre: string;
   tipo: string;
-  estado: "Nuevo" | "Modificado" | "Eliminado";
+  estado: "Nuevo" | "Modificado";
   tipoLocked: boolean;
 };
 
@@ -86,6 +93,11 @@ function TruncatedNameCell({ value }: { value: string }) {
   );
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
 export const SecondStep = () => {
   const { data, detailedPieces, setDetailedPieces } = useManual();
   const [newTableModalOpen, setNewTableModalOpen] = useState(false);
@@ -100,6 +112,11 @@ export const SecondStep = () => {
   const [gitData, setGitData] = useState<RepoStatus[]>([]);
   const [gitRepos, setGitRepos] = useState<string[]>([]);
   const [gitTargetMode, setGitTargetMode] = useState<GitTargetMode>("create");
+  const [showCommitInput, setShowCommitInput] = useState(false);
+  const [commitRepo, setCommitRepo] = useState<RepoPick | null>(null);
+  const [commitId, setCommitId] = useState("");
+  const [commitSubmitted, setCommitSubmitted] = useState(false);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [groupToDeleteIndex, setGroupToDeleteIndex] = useState<number | null>(
     null,
@@ -151,7 +168,11 @@ export const SecondStep = () => {
 
     const extRaw = ch.ext || name.split(".").pop() || "";
     const ext = extRaw.replace(/^\./, "");
-    const tipo = ext ? ext.toUpperCase() : "Archivo";
+    const extUpper = ext.toUpperCase();
+    const tipo =
+      extUpper === "XQ" || extUpper === "XQY"
+        ? "XQUERY"
+        : extUpper || "Archivo";
 
     let estado: string = "Modificado";
     if (ch.kind === "added") estado = "Nuevo";
@@ -167,12 +188,7 @@ export const SecondStep = () => {
   }
 
   function mapItemToManualRow(item: PiezasItem): ManualRow {
-    const estado =
-      item.estado === "Nuevo"
-        ? "Nuevo"
-        : item.estado === "Eliminado"
-          ? "Eliminado"
-          : "Modificado";
+    const estado = item.estado === "Nuevo" ? "Nuevo" : "Modificado";
 
     return {
       nombre: item.nombre ?? "",
@@ -189,6 +205,11 @@ export const SecondStep = () => {
     setManualTableName("");
     setManualRows([{ ...EMPTY_ROW }]);
     setManualSubmitted(false);
+    setShowCommitInput(false);
+    setCommitRepo(null);
+    setCommitId("");
+    setCommitSubmitted(false);
+    setCommitError(null);
   }
 
   function handleCloseNewTableModal() {
@@ -198,9 +219,13 @@ export const SecondStep = () => {
 
   async function handlePickGithub(targetMode: GitTargetMode) {
     setGitLoading(true);
+    setCommitError(null);
     try {
-      const picks = await window.ipc.pickRepos();
-      const paths = (picks ?? []).map((p: any) => p.repoPath);
+      const picks = (await window.ipc.pickRepos()) as
+        | RepoPick[]
+        | null
+        | undefined;
+      const paths = (picks ?? []).map((p) => p.repoPath);
       if (!paths.length) return;
 
       if (gitRepos.length) {
@@ -217,9 +242,85 @@ export const SecondStep = () => {
       if (targetMode === "create") {
         handleCloseNewTableModal();
       }
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.message ?? String(e));
+    } catch (error: unknown) {
+      console.error(error);
+      alert(errorMessage(error));
+    } finally {
+      setGitLoading(false);
+    }
+  }
+
+  async function handleSelectRepoForCommit() {
+    setCommitError(null);
+    setCommitSubmitted(false);
+    try {
+      const picks = (await window.ipc.pickRepos()) as
+        | RepoPick[]
+        | null
+        | undefined;
+      const selected = (picks ?? [])[0] as RepoPick | undefined;
+      if (!selected?.repoPath) return;
+      setCommitRepo(selected);
+      setShowCommitInput(true);
+    } catch (error: unknown) {
+      console.error(error);
+      alert(errorMessage(error));
+    }
+  }
+
+  function handleClearCommitRepo() {
+    setCommitRepo(null);
+    setCommitId("");
+    setCommitSubmitted(false);
+    setCommitError(null);
+    setShowCommitInput(false);
+  }
+
+  async function handlePickCommit(targetMode: GitTargetMode) {
+    setCommitSubmitted(true);
+    setCommitError(null);
+
+    if (!commitRepo?.repoPath) {
+      setCommitError("Selecciona un repositorio primero.");
+      return;
+    }
+
+    const commitRef = commitId.trim();
+    if (!commitRef) return;
+
+    setGitLoading(true);
+    try {
+      if (typeof window.ipc.scanCommit !== "function") {
+        setCommitError(
+          "La app necesita reiniciarse para habilitar la carga por commit.",
+        );
+        return;
+      }
+
+      const statuses = await window.ipc.scanCommit(
+        [commitRepo.repoPath],
+        commitRef,
+      );
+      const reposWithChanges = (statuses ?? []).filter(
+        (status) => (status?.changes?.length ?? 0) > 0,
+      );
+
+      if (!reposWithChanges.length) {
+        setCommitError(
+          "No se encontraron archivos para ese commit en los repositorios seleccionados.",
+        );
+        return;
+      }
+
+      setGitTargetMode(targetMode);
+      setGitData(reposWithChanges);
+      setGitModalOpen(true);
+      if (targetMode === "create") {
+        handleCloseNewTableModal();
+      }
+    } catch (error: unknown) {
+      console.error(error);
+      alert(errorMessage(error));
     } finally {
       setGitLoading(false);
     }
@@ -397,12 +498,12 @@ export const SecondStep = () => {
   return (
     <>
       <Flex align="center" justify="space-between">
-        <Title order={2}>Piezas detalladas</Title>
+        <Title order={2}>Listado de piezas detalladas</Title>
         <Flex align="center" gap="xs">
           {groups.length > 1 && (
             <Button
               variant="outline"
-              color={mainColor}
+              color="gray"
               leftSection={<IconArrowsSort size="1.1rem" />}
               onClick={handleOpenOrderModal}
             >
@@ -419,7 +520,7 @@ export const SecondStep = () => {
         </Flex>
       </Flex>
 
-      <Divider my="sm" />
+      <Divider my="xs" />
 
       {groups.length === 0 ? (
         <Flex
@@ -445,70 +546,81 @@ export const SecondStep = () => {
                 groupRefs.current[index] = el;
               }}
             >
-              <Flex gap="xs" align="center" justify="space-between">
-                <Flex gap="xs" align="center">
-                  <ThemeIcon radius="sm" color={mainColor}>
-                    <Text fw={700}>{index + 1}</Text>
-                  </ThemeIcon>
-                  <Text>{grupo.grupo}</Text>
-                </Flex>
-                <Flex gap="xs" align="center">
-                  <ActionIcon
-                    variant="filled"
-                    color={mainColor}
-                    size="lg"
-                    onClick={() => handleOpenEditManual(index)}
-                    aria-label="Editar tabla"
-                  >
-                    <IconEdit size="1.1rem" />
-                  </ActionIcon>
-                  <ActionIcon
-                    variant="filled"
-                    color="red"
-                    size="lg"
-                    onClick={() => handleOpenDeleteGroup(index)}
-                    aria-label="Eliminar tabla"
-                  >
-                    <IconTrash size="1.1rem" />
-                  </ActionIcon>
-                </Flex>
-              </Flex>
-
-              <Table
-                withTableBorder
-                withColumnBorders
-                striped
-                style={{ tableLayout: "fixed" }}
+              <Accordion
+                chevronPosition="right"
+                variant="contained"
+                radius="sm"
               >
-                <Table.Thead bg={mainColor} c="white">
-                  <Table.Tr>
-                    <Table.Th style={{ width: "45%" }}>Nombre</Table.Th>
-                    <Table.Th style={{ width: "25%" }}>Tipo</Table.Th>
-                    <Table.Th style={{ width: "30%" }}>
-                      Nuevo o modificado
-                    </Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {grupo.items.map((item, i) => (
-                    <Table.Tr key={i}>
-                      <Table.Td style={{ minWidth: 0 }}>
-                        <TruncatedNameCell value={item.nombre} />
-                      </Table.Td>
-                      <Table.Td>
-                        <Text truncate size="sm">
-                          {item.tipo}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td>
-                        <Text truncate size="sm">
-                          {item.estado}
-                        </Text>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
+                <Accordion.Item value={index.toString()} key={index}>
+                  <Accordion.Control>
+                    <Flex gap="xs" align="center" justify="space-between">
+                      <Flex gap="xs" align="center">
+                        <ThemeIcon radius="sm" color={mainColor}>
+                          <Text fw={700}>{index + 1}</Text>
+                        </ThemeIcon>
+                        <Text>{grupo.grupo}</Text>
+                      </Flex>
+                      <Flex gap="xs" align="center">
+                        <ActionIcon
+                          variant="filled"
+                          color={mainColor}
+                          size="lg"
+                          onClick={() => handleOpenEditManual(index)}
+                          aria-label="Editar tabla"
+                        >
+                          <IconEdit size="1.1rem" />
+                        </ActionIcon>
+                        <ActionIcon
+                          variant="filled"
+                          color="red"
+                          size="lg"
+                          onClick={() => handleOpenDeleteGroup(index)}
+                          aria-label="Eliminar tabla"
+                        >
+                          <IconTrash size="1.1rem" />
+                        </ActionIcon>
+                      </Flex>
+                    </Flex>
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <Table
+                      withTableBorder
+                      withColumnBorders
+                      striped
+                      style={{ tableLayout: "fixed" }}
+                    >
+                      <Table.Thead bg={mainColor} c="white">
+                        <Table.Tr>
+                          <Table.Th style={{ width: "45%" }}>Nombre</Table.Th>
+                          <Table.Th style={{ width: "25%" }}>Tipo</Table.Th>
+                          <Table.Th style={{ width: "30%" }}>
+                            Nuevo o modificado
+                          </Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {grupo.items.map((item, i) => (
+                          <Table.Tr key={i}>
+                            <Table.Td style={{ minWidth: 0 }}>
+                              <TruncatedNameCell value={item.nombre} />
+                            </Table.Td>
+                            <Table.Td>
+                              <Text truncate size="sm">
+                                {item.tipo}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text truncate size="sm">
+                                {item.estado}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
             </Flex>
           ))}
         </SimpleGrid>
@@ -525,37 +637,120 @@ export const SecondStep = () => {
       >
         {newTableView === "options" ? (
           <Stack>
-            <Button
-              leftSection={<IconBrandGithub size="1.1rem" />}
-              onClick={() => handlePickGithub("create")}
-              loading={gitLoading}
-              color="orange"
-            >
-              Desde repositorio (Github)
-            </Button>
-            <Button 
-              color={mainColor}
-              onClick={handleOpenCreateManual}
-            >
+            <Accordion variant="separated" radius="sm">
+              <Accordion.Item value="repo">
+                <Accordion.Control icon={<IconBrandGithub size="1.1rem" />}>
+                  <Text size="sm">Desde repositorio (Github)</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Stack>
+                    {!commitRepo && (
+                      <>
+                        <Button
+                          onClick={() => handlePickGithub("create")}
+                          loading={gitLoading}
+                          color="orange"
+                        >
+                          Seleccionar repositorio
+                        </Button>
+                        <Button
+                          variant="outline"
+                          color="gray"
+                          onClick={handleSelectRepoForCommit}
+                          loading={gitLoading}
+                        >
+                          Recuperar desde commit específico
+                        </Button>
+                      </>
+                    )}
+                    {showCommitInput && commitRepo && (
+                      <Stack gap="xs">
+                        <Card
+                          withBorder
+                          shadow="sm"
+                          radius="md"
+                          style={{ width: "100%" }}
+                        >
+                          <Card.Section withBorder inheritPadding py={5}>
+                            <Group justify="space-between" wrap="nowrap">
+                              <Text
+                                fw={500}
+                                size="sm"
+                                truncate
+                                style={{ flex: 1, minWidth: 0 }}
+                              >
+                                {commitRepo.repoName}
+                              </Text>
+                              <Menu
+                                withinPortal
+                                position="bottom-end"
+                                shadow="sm"
+                              >
+                                <Menu.Target>
+                                  <ActionIcon variant="subtle" color="gray">
+                                    <IconDots size={16} />
+                                  </ActionIcon>
+                                </Menu.Target>
+
+                                <Menu.Dropdown>
+                                  <Menu.Item
+                                    leftSection={
+                                      <IconRotateClockwise size={14} />
+                                    }
+                                    onClick={handleSelectRepoForCommit}
+                                  >
+                                    Cambiar repositorio
+                                  </Menu.Item>
+                                  <Menu.Item
+                                    leftSection={<IconTrash size={14} />}
+                                    color="red"
+                                    onClick={handleClearCommitRepo}
+                                  >
+                                    Quitar repositorio
+                                  </Menu.Item>
+                                </Menu.Dropdown>
+                              </Menu>
+                            </Group>
+                          </Card.Section>
+                        </Card>
+                        <TextInput
+                          placeholder="ID de commit (corto o completo)"
+                          value={commitId}
+                          onChange={(e) => setCommitId(e.currentTarget.value)}
+                          error={
+                            commitSubmitted &&
+                            commitRepo?.repoPath &&
+                            !commitId.trim()
+                              ? "El commit es requerido"
+                              : undefined
+                          }
+                          disabled={!commitRepo}
+                        />
+                        {commitError ? (
+                          <Text c="red" size="sm">
+                            {commitError}
+                          </Text>
+                        ) : null}
+                        <Button
+                          color={mainColor}
+                          onClick={() => handlePickCommit("create")}
+                          loading={gitLoading}
+                          disabled={!commitRepo}
+                        >
+                          Ver commit
+                        </Button>
+                      </Stack>
+                    )}
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
+            <Button color={mainColor} onClick={handleOpenCreateManual}>
               Crear manualmente
             </Button>
           </Stack>
         ) : (
           <Stack>
-            <Flex justify="space-between" align="center">
-              {manualMode === "create" && (
-                <>
-                  <Text fw={600}>Crear tabla manual</Text>
-                  <Button
-                    variant="subtle"
-                    onClick={() => setNewTableView("options")}
-                  >
-                    Atrás
-                  </Button>
-                </>
-              )}
-            </Flex>
-
             <TextInput
               label={
                 <>
@@ -627,15 +822,13 @@ export const SecondStep = () => {
                       data={[
                         { value: "Nuevo", label: "Nuevo" },
                         { value: "Modificado", label: "Modificado" },
-                        { value: "Eliminado", label: "Eliminado" },
                       ]}
                       value={row.estado}
                       onChange={(value) =>
                         handleManualFieldChange(
                           index,
                           "estado",
-                          (value as "Nuevo" | "Modificado" | "Eliminado") ||
-                            "Nuevo",
+                          (value as "Nuevo" | "Modificado") || "Nuevo",
                         )
                       }
                       allowDeselect={false}
@@ -679,20 +872,11 @@ export const SecondStep = () => {
 
             <Flex gap="xs" justify="flex-end">
               <Button
-                color={mainColor}
+                color="gray"
                 variant="outline"
                 onClick={handleAddManualRow}
               >
                 Añadir fila
-              </Button>
-              <Button
-                variant="outline"
-                color="orange"
-                leftSection={<IconBrandGithub size="1rem" />}
-                onClick={() => handlePickGithub("edit")}
-                loading={gitLoading}
-              >
-                Agregar desde Github
               </Button>
               <Button color={mainColor} onClick={handleSubmitManualTable}>
                 {manualMode === "edit" ? "Guardar cambios" : "Crear tabla"}

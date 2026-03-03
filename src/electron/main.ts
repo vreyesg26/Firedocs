@@ -280,6 +280,16 @@ function kindFromXY(X: string, Y: string): RepoChange["kind"] {
   return "unknown";
 }
 
+function kindFromCommitStatus(statusCode: string): RepoChange["kind"] {
+  const code = statusCode.trim().toUpperCase()[0];
+  if (code === "A") return "added";
+  if (code === "D") return "deleted";
+  if (code === "M") return "modified";
+  if (code === "R") return "renamed";
+  if (code === "C") return "copied";
+  return "unknown";
+}
+
 async function scanReposSimple(repoPaths: string[]): Promise<RepoStatus[]> {
   const out: RepoStatus[] = [];
   for (const repoPath of repoPaths) {
@@ -314,6 +324,83 @@ async function scanReposSimple(repoPaths: string[]): Promise<RepoStatus[]> {
       });
     }
   }
+  return out;
+}
+
+async function scanReposByCommit(
+  repoPaths: string[],
+  commitId: string,
+): Promise<RepoStatus[]> {
+  const commitRef = commitId.trim();
+  if (!commitRef) return [];
+
+  const out: RepoStatus[] = [];
+  for (const repoPath of repoPaths) {
+    try {
+      const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: GIT_BINARY });
+      await git.revparse([`${commitRef}^{commit}`]);
+
+      const branchRaw = await git.raw([
+        "branch",
+        "--contains",
+        commitRef,
+        "--format=%(refname:short)",
+      ]);
+      const branch =
+        branchRaw
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean) || undefined;
+
+      const showRaw = await git.raw([
+        "show",
+        "--name-status",
+        "--pretty=format:",
+        "--no-renames",
+        commitRef,
+      ]);
+
+      const changes: RepoChange[] = [];
+      for (const rawLine of showRaw.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        const [rawStatus, filePath] = line.split(/\t+/, 2);
+        if (!rawStatus || !filePath) continue;
+
+        const kind = kindFromCommitStatus(rawStatus);
+        const statusLetter =
+          kind === "added"
+            ? "A"
+            : kind === "deleted"
+              ? "D"
+              : kind === "modified"
+                ? "M"
+                : " ";
+
+        changes.push({
+          path: filePath,
+          worktree: statusLetter,
+          index: statusLetter,
+          conflicted: false,
+          ext: path.extname(filePath) || undefined,
+          kind,
+        });
+      }
+
+      out.push({
+        repoPath,
+        repoName: path.basename(repoPath),
+        branch,
+        ahead: 0,
+        behind: 0,
+        changes,
+      });
+    } catch {
+      // Ignoramos repos donde el commit no existe o no se puede leer.
+    }
+  }
+
   return out;
 }
 
@@ -361,6 +448,7 @@ function registerGitIpcHandlers() {
   ipcMain.removeHandler("git:choose-roots");
   ipcMain.removeHandler("git:discover");
   ipcMain.removeHandler("git:scan");
+  ipcMain.removeHandler("git:scan-commit");
   ipcMain.removeHandler("git:scan-discovered");
   ipcMain.removeHandler("git:watch-start");
   ipcMain.removeHandler("git:watch-stop");
@@ -389,6 +477,20 @@ function registerGitIpcHandlers() {
     const res = await scanReposSimple(repoPaths);
     return res;
   });
+
+  ipcMain.handle(
+    "git:scan-commit",
+    async (
+      _evt,
+      payload: { repoPaths?: string[]; commitId?: string } | undefined,
+    ) => {
+      const repoPaths = payload?.repoPaths ?? [];
+      const commitId = payload?.commitId ?? "";
+      if (!Array.isArray(repoPaths) || repoPaths.length === 0) return [];
+      if (!commitId.trim()) return [];
+      return await scanReposByCommit(repoPaths, commitId);
+    },
+  );
 
   ipcMain.handle("git:scan-discovered", async () => {
     if (!CACHED_REPOS.length) return [];

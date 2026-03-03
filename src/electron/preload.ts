@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("ipc", {
   discover: (roots?: string[]): Promise<string[]> =>
     ipcRenderer.invoke("git:discover", roots),
   scan: (repoPaths: string[]) => ipcRenderer.invoke("git:scan", repoPaths),
+  scanCommit: (repoPaths: string[], commitId: string) =>
+    ipcRenderer.invoke("git:scan-commit", { repoPaths, commitId }),
   scanDiscovered: () => ipcRenderer.invoke("git:scan-discovered"),
   startGitWatch: (repoPaths: string[]) =>
     ipcRenderer.invoke("git:watch-start", repoPaths),

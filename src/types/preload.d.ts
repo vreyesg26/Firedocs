@@ -15,6 +15,10 @@ declare global {
       chooseRoots: () => Promise<string[]>;
       discover: (roots?: string[]) => Promise<string[]>;
       scan: (repoPaths: string[]) => Promise<import("@/types/git").RepoStatus[]>;
+      scanCommit: (
+        repoPaths: string[],
+        commitId: string
+      ) => Promise<import("@/types/git").RepoStatus[]>;
       scanDiscovered: () => Promise<import("@/types/git").RepoStatus[]>;
       startGitWatch: (repoPaths: string[]) => Promise<boolean>;
       stopGitWatch: (repoPaths?: string[]) => Promise<boolean>;

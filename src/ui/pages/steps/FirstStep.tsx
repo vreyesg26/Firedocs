@@ -12,7 +12,7 @@ export function FirstStep() {
   return (
     <>
       <Title order={2}>Información general</Title>
-      <Divider my="sm" />
+      <Divider my="xs" />
       <FieldsForm sections={sections} onChange={setSections} />
     </>
   );

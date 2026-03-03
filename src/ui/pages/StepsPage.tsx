@@ -4,7 +4,6 @@ import {
   Progress,
   Group,
   Text,
-  Stepper,
   Button,
   Box,
   Flex,
@@ -18,14 +17,12 @@ import {
   IconChevronRight,
   IconFileUpload,
 } from "@tabler/icons-react";
-import { useMediaQuery } from "@mantine/hooks";
 import { mainColor } from "@/lib/utils";
 
 export default function StepsPage() {
   const { data, sections, handleExport } = useManual();
   const [active, setActive] = useState(0);
   const completed = active === steps.length;
-  const isMediumScreen = useMediaQuery("(min-width: 1360px)");
 
   const percent = useMemo(
     () => Math.round((active / steps.length) * 100),
@@ -57,7 +54,16 @@ export default function StepsPage() {
   }
 
   return (
-    <Container fluid px="lg" py="md">
+    <Container
+      fluid
+      px="lg"
+      py="md"
+      style={{
+        minHeight: "calc(100vh - 60px - (var(--mantine-spacing-md) * 2))",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <Group justify="space-between" mb="xs">
         <Text fw={600}>Progreso del manual</Text>
         <Text c="dimmed">{percent}%</Text>
@@ -65,30 +71,9 @@ export default function StepsPage() {
 
       <Progress color={mainColor} value={percent} size="lg" radius="sm" />
 
-      {isMediumScreen && (
-        <Box mt="xl" w="100%">
-          <Stepper
-            active={active}
-            onStepClick={setActive}
-            allowNextStepsSelect={false}
-            color={mainColor}
-          >
-            {steps.map((s, i) => (
-              <Stepper.Step key={i} label={s.label} />
-            ))}
-
-            <Stepper.Completed >
-              <Text ta="center" c="dimmed">
-                Manual completado
-              </Text>
-            </Stepper.Completed>
-          </Stepper>
-        </Box>
-      )}
-
       <Box mt="xl">{renderStepContent()}</Box>
 
-      <Group justify="space-between" mt="xl" >
+      <Group justify="space-between" mt="auto" pt="xl">
         <Button
           leftSection={<IconChevronLeft size="1.1rem" />}
           variant="default"
@@ -103,7 +88,7 @@ export default function StepsPage() {
             leftSection={<IconFileUpload size="1.1rem" />}
             onClick={handleExport}
             variant="outline"
-            color={mainColor}
+            color='gray'
           >
             Exportar
           </Button>

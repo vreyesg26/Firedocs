@@ -4,7 +4,11 @@ import type { FieldOption, HomeFeatureProps, StepsProps } from "@/types/manual";
 export const steps: StepsProps[] = [
   { key: "general", label: "Paso 1", description: "Información general" },
   { key: "pieces", label: "Paso 2", description: "Piezas detalladas" },
-  { key: "pieces-fixes", label: "Paso 3", description: "Piezas detalladas para bugfix, hotfix e incidencias" },
+  {
+    key: "pieces-fixes",
+    label: "Paso 3",
+    description: "Piezas detalladas para bugfix, hotfix e incidencias",
+  },
   { key: "services", label: "Paso 4", description: "Listar áreas y servicios" },
   {
     key: "repos",
@@ -22,7 +26,7 @@ export const mainButtonsData: HomeFeatureProps[] = [
     key: "existing",
     title: "Usar plantilla existente",
     description:
-      "Aquí podrás seleccionar una de las plantillas predefinidas para comenzar rápidamente con la creación de tu manual de usuario desde 0.",
+      "Aquí podrás seleccionar una de las plantillas predefinidas para comenzar rápidamente con la creación de tu manual de instalación desde 0.",
     icon: IconFileTypeDocx,
   },
   {

@@ -27,7 +27,7 @@ export function HeaderMenu() {
         onClick={() => navigate("/")}
         style={{ cursor: "pointer" }}
       >
-        <Image src={logo} w={42} />
+        <Image src={logo} w={35} />
         <Title order={5}>FireDocs</Title>
       </Group>
 

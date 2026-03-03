@@ -18,7 +18,7 @@
     "category": "Utility"
   },
   "win": {
-    "target": ["portable"]
+    "target": [{ "target": "zip", "arch": ["x64"] }]
   },
   "artifactName": "FireDocs.${ext}"
 }

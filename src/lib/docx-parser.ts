@@ -737,7 +737,7 @@ export async function parseDocxArrayBuffer(
 
     seccionesReconocidas.push({
       id: "informacion-general",
-      title: "Información general",
+      title: "",
       fields: [
         {
           key: "id-cambio",
