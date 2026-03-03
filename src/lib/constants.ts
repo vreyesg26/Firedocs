@@ -18,7 +18,14 @@ export const steps: StepsProps[] = [
   { key: "prevsteps", label: "Paso 6", description: "Describir pasos previos" },
   { key: "backup", label: "Paso 7", description: "Respaldo de objetos" },
   { key: "installation", label: "Paso 8", description: "Pasos de instalación" },
-  { key: "reverse", label: "Paso 9", description: "Pasos de reversión" },
+  { key: "reversion", label: "Paso 9", description: "Pasos de reversión" },
+  { key: "backup-fix", label: "Paso 10", description: "Respaldo de objetos" },
+  {
+    key: "installation-fix",
+    label: "Paso 11",
+    description: "Pasos de instalación",
+  },
+  { key: "reversion-fix", label: "Paso 12", description: "Pasos de reversión" },
 ];
 
 export const mainButtonsData: HomeFeatureProps[] = [

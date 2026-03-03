@@ -546,81 +546,74 @@ export const SecondStep = () => {
                 groupRefs.current[index] = el;
               }}
             >
-              <Accordion
-                chevronPosition="right"
-                variant="contained"
-                radius="sm"
-              >
-                <Accordion.Item value={index.toString()} key={index}>
-                  <Accordion.Control>
-                    <Flex gap="xs" align="center" justify="space-between">
-                      <Flex gap="xs" align="center">
-                        <ThemeIcon radius="sm" color={mainColor}>
-                          <Text fw={700}>{index + 1}</Text>
-                        </ThemeIcon>
-                        <Text>{grupo.grupo}</Text>
-                      </Flex>
-                      <Flex gap="xs" align="center">
-                        <ActionIcon
-                          variant="filled"
-                          color={mainColor}
-                          size="lg"
-                          onClick={() => handleOpenEditManual(index)}
-                          aria-label="Editar tabla"
-                        >
-                          <IconEdit size="1.1rem" />
-                        </ActionIcon>
-                        <ActionIcon
-                          variant="filled"
-                          color="red"
-                          size="lg"
-                          onClick={() => handleOpenDeleteGroup(index)}
-                          aria-label="Eliminar tabla"
-                        >
-                          <IconTrash size="1.1rem" />
-                        </ActionIcon>
-                      </Flex>
+              <Card radius="sm">
+                <Stack gap='xs'>
+                  <Flex gap="xs" align="center" justify="space-between">
+                    <Flex gap="xs" align="center">
+                      <ThemeIcon radius="sm" color={mainColor}>
+                        <Text fw={700}>{index + 1}</Text>
+                      </ThemeIcon>
+                      <Text>{grupo.grupo}</Text>
                     </Flex>
-                  </Accordion.Control>
-                  <Accordion.Panel>
-                    <Table
-                      withTableBorder
-                      withColumnBorders
-                      striped
-                      style={{ tableLayout: "fixed" }}
-                    >
-                      <Table.Thead bg={mainColor} c="white">
-                        <Table.Tr>
-                          <Table.Th style={{ width: "45%" }}>Nombre</Table.Th>
-                          <Table.Th style={{ width: "25%" }}>Tipo</Table.Th>
-                          <Table.Th style={{ width: "30%" }}>
-                            Nuevo o modificado
-                          </Table.Th>
+                    <Flex gap="xs" align="center">
+                      <ActionIcon
+                        variant="filled"
+                        color={mainColor}
+                        size="lg"
+                        onClick={() => handleOpenEditManual(index)}
+                        aria-label="Editar tabla"
+                      >
+                        <IconEdit size="1.1rem" />
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="filled"
+                        color="red"
+                        size="lg"
+                        onClick={() => handleOpenDeleteGroup(index)}
+                        aria-label="Eliminar tabla"
+                      >
+                        <IconTrash size="1.1rem" />
+                      </ActionIcon>
+                    </Flex>
+                  </Flex>
+
+                  <Table
+                    withTableBorder
+                    withColumnBorders
+                    striped
+                    style={{ tableLayout: "fixed" }}
+                  >
+                    <Table.Thead bg={mainColor} c="white">
+                      <Table.Tr>
+                        <Table.Th style={{ width: "45%" }}>Nombre</Table.Th>
+                        <Table.Th style={{ width: "25%" }}>Tipo</Table.Th>
+                        <Table.Th style={{ width: "30%" }}>
+                          Nuevo o modificado
+                        </Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {grupo.items.map((item, i) => (
+                        <Table.Tr key={i}>
+                          <Table.Td style={{ minWidth: 0 }}>
+                            <TruncatedNameCell value={item.nombre} />
+                          </Table.Td>
+                          <Table.Td>
+                            <Text truncate size="sm">
+                              {item.tipo}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Text truncate size="sm">
+                              {item.estado}
+                            </Text>
+                          </Table.Td>
                         </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {grupo.items.map((item, i) => (
-                          <Table.Tr key={i}>
-                            <Table.Td style={{ minWidth: 0 }}>
-                              <TruncatedNameCell value={item.nombre} />
-                            </Table.Td>
-                            <Table.Td>
-                              <Text truncate size="sm">
-                                {item.tipo}
-                              </Text>
-                            </Table.Td>
-                            <Table.Td>
-                              <Text truncate size="sm">
-                                {item.estado}
-                              </Text>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                  </Accordion.Panel>
-                </Accordion.Item>
-              </Accordion>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </Stack>
+              </Card>
             </Flex>
           ))}
         </SimpleGrid>

@@ -1,10 +1,10 @@
 import { Divider, Title } from "@mantine/core";
 
-export const ThirdStep = () => {
+export const SixthStep = () => {
   return (
     <>
       <Title order={2}>
-        Listado de piezas detalladas (BF / HF / Incidencia)
+        Pasos previos antes de la instalación
       </Title>
       <Divider my="xs" />
     </>

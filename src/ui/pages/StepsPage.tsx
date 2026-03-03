@@ -9,15 +9,27 @@ import {
   Flex,
 } from "@mantine/core";
 import { steps } from "@/lib/constants";
-import { FirstStep } from "./steps/FirstStep";
 import { useManual } from "@/context/ManualContext";
-import { SecondStep } from "./steps/SecondStep";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconFileUpload,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
+import {
+  EighthStep,
+  EleventhStep,
+  FifthStep,
+  FirstStep,
+  FourthStep,
+  NinthStep,
+  SecondStep,
+  SeventhStep,
+  SixthStep,
+  TenthStep,
+  ThirdStep,
+  TwelfthStep,
+} from "./steps";
 
 export default function StepsPage() {
   const { data, sections, handleExport } = useManual();
@@ -26,7 +38,7 @@ export default function StepsPage() {
 
   const percent = useMemo(
     () => Math.round((active / steps.length) * 100),
-    [active]
+    [active],
   );
 
   const next = () => setActive((a) => Math.min(a + 1, steps.length));
@@ -40,6 +52,26 @@ export default function StepsPage() {
         return <FirstStep />;
       case "pieces":
         return <SecondStep />;
+      case "pieces-fixes":
+        return <ThirdStep />;
+      case "services":
+        return <FourthStep />;
+      case "repos":
+        return <FifthStep />;
+      case "prevsteps":
+        return <SixthStep />;
+      case "backup":
+        return <SeventhStep />;
+      case "installation":
+        return <EighthStep />;
+      case "reversion":
+        return <NinthStep />;
+      case "backup-fix":
+        return <TenthStep />;
+      case "installation-fix":
+        return <EleventhStep />;
+      case "reversion-fix":
+        return <TwelfthStep />;
       default:
         return null;
     }
@@ -88,7 +120,7 @@ export default function StepsPage() {
             leftSection={<IconFileUpload size="1.1rem" />}
             onClick={handleExport}
             variant="outline"
-            color='gray'
+            color="gray"
           >
             Exportar
           </Button>
@@ -101,8 +133,8 @@ export default function StepsPage() {
             {completed
               ? "Listo"
               : active < steps.length - 1
-              ? "Siguiente"
-              : "Finalizar"}
+                ? "Siguiente"
+                : "Finalizar"}
           </Button>
         </Flex>
       </Group>
