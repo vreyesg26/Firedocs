@@ -298,6 +298,145 @@ function setCountryX(
   }
 }
 
+function sanitizeList(values: string[]): string[] {
+  return (values ?? [])
+    .map((v) => String(v ?? "").trim())
+    .filter((v) => v.length > 0);
+}
+
+function setSingleCellRowText(doc: Document, row: Node, text: string) {
+  const cells = xpNodes("./w:tc", row);
+  if (!cells.length) return;
+  setCellTextKeepParagraph(cells[0], text, doc);
+  for (let i = 1; i < cells.length; i++) {
+    setCellTextKeepParagraph(cells[i], "", doc);
+  }
+}
+
+function adjustRowsBeforeIndex(
+  table: Node,
+  startIndex: number,
+  beforeIndex: number,
+  targetCount: number,
+): Node[] {
+  const tblEl = table as Element;
+  let rows = xpNodes("./w:tr", table);
+  let sectionRows = rows.slice(startIndex, beforeIndex);
+  const sectionTemplate = sectionRows[0]?.cloneNode(true) ?? null;
+
+  while (sectionRows.length < targetCount && sectionTemplate) {
+    const areaTitleRow = xpNodes("./w:tr", table)[beforeIndex] ?? null;
+    const cloned = sectionTemplate.cloneNode(true);
+    if (areaTitleRow) tblEl.insertBefore(cloned, areaTitleRow);
+    else tblEl.appendChild(cloned);
+    rows = xpNodes("./w:tr", table);
+    sectionRows = rows.slice(startIndex, startIndex + targetCount);
+  }
+
+  while (sectionRows.length > targetCount) {
+    const last = sectionRows.pop();
+    if (last?.parentNode === tblEl) tblEl.removeChild(last);
+    rows = xpNodes("./w:tr", table);
+    sectionRows = rows.slice(startIndex, startIndex + targetCount);
+  }
+
+  return sectionRows;
+}
+
+function adjustRowsAfterIndex(
+  table: Node,
+  startIndex: number,
+  targetCount: number,
+): Node[] {
+  const tblEl = table as Element;
+  let rows = xpNodes("./w:tr", table);
+  let sectionRows = rows.slice(startIndex);
+  const sectionTemplate = sectionRows[0]?.cloneNode(true) ?? null;
+
+  while (sectionRows.length < targetCount && sectionTemplate) {
+    const cloned = sectionTemplate.cloneNode(true);
+    tblEl.appendChild(cloned);
+    rows = xpNodes("./w:tr", table);
+    sectionRows = rows.slice(startIndex);
+  }
+
+  while (sectionRows.length > targetCount) {
+    const last = sectionRows.pop();
+    if (last?.parentNode === tblEl) tblEl.removeChild(last);
+    rows = xpNodes("./w:tr", table);
+    sectionRows = rows.slice(startIndex);
+  }
+
+  return sectionRows;
+}
+
+function fillServicesAndAffectedAreas(
+  doc: Document,
+  root: Document,
+  servicesProducts: string[],
+  affectedAreas: string[],
+) {
+  const tables = xpNodes("//w:tbl", root);
+  const servicesNeedle = normalizeKey(
+    "Listar Servicios/Productos que están relacionados y que se verán impactados",
+  );
+  const areasNeedle = normalizeKey(
+    "Listar áreas que se verán impactadas",
+  );
+
+  const cleanServices = sanitizeList(servicesProducts);
+  const cleanAreas = sanitizeList(affectedAreas);
+  const servicesTargetRows = Math.max(2, cleanServices.length);
+  const areasTargetRows = Math.max(2, cleanAreas.length);
+
+  for (const table of tables) {
+    const rows = xpNodes("./w:tr", table);
+    let servicesTitleIndex = -1;
+    let areasTitleIndex = -1;
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowText = normalizeKey(getTextDeep(rows[i]));
+      if (servicesTitleIndex === -1 && rowText.includes(servicesNeedle)) {
+        servicesTitleIndex = i;
+      }
+      if (areasTitleIndex === -1 && rowText.includes(areasNeedle)) {
+        areasTitleIndex = i;
+      }
+    }
+
+    if (servicesTitleIndex === -1 || areasTitleIndex === -1) continue;
+    if (areasTitleIndex <= servicesTitleIndex) continue;
+
+    const servicesStart = servicesTitleIndex + 1;
+    const servicesRows = adjustRowsBeforeIndex(
+      table,
+      servicesStart,
+      areasTitleIndex,
+      servicesTargetRows,
+    );
+
+    const recomputedRows = xpNodes("./w:tr", table);
+    const newAreasTitleIndex = recomputedRows.findIndex((row) =>
+      normalizeKey(getTextDeep(row)).includes(areasNeedle),
+    );
+    if (newAreasTitleIndex === -1) return;
+
+    const areasRows = adjustRowsAfterIndex(
+      table,
+      newAreasTitleIndex + 1,
+      areasTargetRows,
+    );
+
+    for (let i = 0; i < servicesRows.length; i++) {
+      setSingleCellRowText(doc, servicesRows[i], cleanServices[i] ?? "");
+    }
+    for (let i = 0; i < areasRows.length; i++) {
+      setSingleCellRowText(doc, areasRows[i], cleanAreas[i] ?? "");
+    }
+    return;
+  }
+}
+
 /* =================== Líneas con label en la primera fila ================ */
 
 /**
@@ -515,44 +654,151 @@ function ensureDataRowsCount(
   return dataRows;
 }
 
-async function fillDetailedPieces(
-  template: Uint8Array,
-  piezasDetalladas: PiezasGrupo[]
-): Promise<Uint8Array> {
-  if (!piezasDetalladas.length) return template;
+function hasFixPiecesHeaderText(text: string) {
+  const n = normalizeKey(text);
+  return (
+    n.includes("nombre") &&
+    n.includes("tipo") &&
+    n.includes("identificador") &&
+    n.includes("fecha") &&
+    n.includes("hora") &&
+    (n.includes("nuevo o modificado") ||
+      (n.includes("nuevo") && n.includes("modificado")))
+  );
+}
 
-  const zip = await JSZip.loadAsync(template);
-  const xml = await zip.file("word/document.xml")?.async("string");
-  if (!xml) throw new Error("No se encontró word/document.xml");
+function mapFixHeaderColumnsInRow(row: Node): {
+  nombre: number;
+  tipo: number;
+  identificador: number;
+  fechaHoraModificacion: number;
+  estado: number;
+} | null {
+  const cells = xpNodes("./w:tc", row);
+  let nombre = -1;
+  let tipo = -1;
+  let identificador = -1;
+  let fechaHoraModificacion = -1;
+  let estado = -1;
 
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const mainTable = xpNodes("//w:tbl", doc).find((tbl) => {
-    const tx = normalizeKey(getTextDeep(tbl));
-    return (
-      tx.includes("listado de piezas detalladas (nuevos / modificados)") &&
-      tx.includes("listado de piezas detalladas para bugfix")
-    );
+  for (let i = 0; i < cells.length; i++) {
+    const txt = normalizeKey(getTextDeep(cells[i]));
+    if (txt === "nombre") nombre = i;
+    else if (txt === "tipo") tipo = i;
+    else if (txt.includes("identificador")) identificador = i;
+    else if (txt.includes("fecha") && txt.includes("hora")) {
+      fechaHoraModificacion = i;
+    } else if (
+      txt.includes("nuevo o modificado") ||
+      txt === "nuevo" ||
+      txt === "modificado"
+    ) {
+      estado = i;
+    }
+  }
+
+  return nombre >= 0 &&
+    tipo >= 0 &&
+    identificador >= 0 &&
+    fechaHoraModificacion >= 0 &&
+    estado >= 0
+    ? { nombre, tipo, identificador, fechaHoraModificacion, estado }
+    : null;
+}
+
+function findFixPiecesHeaderInfo(table: Node): {
+  headerRowIndex: number;
+  cols: {
+    nombre: number;
+    tipo: number;
+    identificador: number;
+    fechaHoraModificacion: number;
+    estado: number;
+  };
+} | null {
+  const rows = xpNodes("./w:tr", table);
+  for (let i = 0; i < rows.length; i++) {
+    const rowText = getTextDeep(rows[i]);
+    if (!hasFixPiecesHeaderText(rowText)) continue;
+    const cols = mapFixHeaderColumnsInRow(rows[i]);
+    if (cols) return { headerRowIndex: i, cols };
+  }
+  return null;
+}
+
+function setRowFixItemByColumns(
+  doc: Document,
+  row: Node,
+  item: {
+    nombre: string;
+    tipo: string;
+    identificador?: string;
+    fechaHoraModificacion?: string;
+    estado: string;
+  },
+  cols: {
+    nombre: number;
+    tipo: number;
+    identificador: number;
+    fechaHoraModificacion: number;
+    estado: number;
+  },
+) {
+  const cells = xpNodes("./w:tc", row);
+  if (!cells.length) return;
+  setCellTextKeepParagraph(cells[cols.nombre] ?? null, item.nombre ?? "", doc, {
+    bold: true,
   });
-  if (!mainTable) return template;
+  setCellTextKeepParagraph(cells[cols.tipo] ?? null, item.tipo ?? "", doc, {
+    bold: true,
+  });
+  setCellTextKeepParagraph(
+    cells[cols.identificador] ?? null,
+    item.identificador ?? "",
+    doc,
+    { bold: true },
+  );
+  setCellTextKeepParagraph(
+    cells[cols.fechaHoraModificacion] ?? null,
+    item.fechaHoraModificacion ?? "",
+    doc,
+    { bold: true },
+  );
+  setCellTextKeepParagraph(cells[cols.estado] ?? null, item.estado ?? "", doc, {
+    bold: true,
+  });
+}
+
+type PiecesSectionMode = "standard" | "fixes";
+
+function fillDetailedPiecesSection(
+  doc: Document,
+  mainTable: Node,
+  sectionTitle: string,
+  groups: PiezasGrupo[],
+  mode: PiecesSectionMode,
+) {
+  if (!groups.length) return;
 
   const rows = xpNodes("./w:tr", mainTable);
   let sectionHeaderIndex = -1;
+  const sectionTitleNorm = normalizeKey(sectionTitle);
   for (let i = 0; i < rows.length; i++) {
     const tx = normalizeKey(getTextDeep(rows[i]));
-    if (tx.includes("listado de piezas detalladas (nuevos / modificados)")) {
+    if (tx.includes(sectionTitleNorm)) {
       sectionHeaderIndex = i;
       break;
     }
   }
-  if (sectionHeaderIndex < 0) return template;
+  if (sectionHeaderIndex < 0) return;
 
   const contentRow = rows[sectionHeaderIndex + 1] ?? null;
-  if (!contentRow) return template;
+  if (!contentRow) return;
   const contentCell = xpNode("./w:tc[1]", contentRow);
-  if (!contentCell) return template;
+  if (!contentCell) return;
 
   let blocks = getPiecesBlocksFromCell(contentCell);
-  if (!blocks.length) return template;
+  if (!blocks.length) return;
 
   const trailingEmptyP = (() => {
     const ps = xpNodes("./w:p", contentCell);
@@ -564,9 +810,9 @@ async function fillDetailedPieces(
 
   const contentCellEl = contentCell as Element;
 
-  if (piezasDetalladas.length > blocks.length) {
+  if (groups.length > blocks.length) {
     const last = blocks[blocks.length - 1];
-    for (let i = blocks.length; i < piezasDetalladas.length; i++) {
+    for (let i = blocks.length; i < groups.length; i++) {
       const titleClone = last.titleP ? last.titleP.cloneNode(true) : null;
       const tableClone = last.table.cloneNode(true);
       if (titleClone) {
@@ -579,20 +825,23 @@ async function fillDetailedPieces(
     }
   }
 
-  if (piezasDetalladas.length < blocks.length) {
-    for (let i = blocks.length - 1; i >= piezasDetalladas.length; i--) {
+  if (groups.length < blocks.length) {
+    for (let i = blocks.length - 1; i >= groups.length; i--) {
       const b = blocks[i];
       if (b.table.parentNode === contentCellEl) contentCellEl.removeChild(b.table);
       if (b.titleP && b.titleP.parentNode === contentCellEl) contentCellEl.removeChild(b.titleP);
     }
-    blocks = blocks.slice(0, piezasDetalladas.length);
+    blocks = blocks.slice(0, groups.length);
   }
 
-  for (let i = 0; i < piezasDetalladas.length; i++) {
-    const group = piezasDetalladas[i];
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
     const block = blocks[i];
-    const headerInfo = findPiecesHeaderInfo(block.table);
-    if (!headerInfo) continue;
+    const standardHeaderInfo = mode === "standard" ? findPiecesHeaderInfo(block.table) : null;
+    const fixHeaderInfo = mode === "fixes" ? findFixPiecesHeaderInfo(block.table) : null;
+
+    if (mode === "standard" && !standardHeaderInfo) continue;
+    if (mode === "fixes" && !fixHeaderInfo) continue;
 
     if (!block.titleP) {
       const newP = doc.createElementNS(W_NS, "w:p");
@@ -608,20 +857,74 @@ async function fillDetailedPieces(
         block.titleP,
         group.grupo || `Grupo ${i + 1}`,
         doc,
-        { bold: true }
+        { bold: true },
       );
     }
 
-    const dataRows = ensureDataRowsCount(
-      block.table,
-      headerInfo.headerRowIndex,
-      group.items.length
-    );
-    for (let j = 0; j < dataRows.length; j++) {
-      const item = group.items[j] ?? { nombre: "", tipo: "", estado: "" };
-      setRowItemByColumns(doc, dataRows[j], item, headerInfo.cols);
+    if (mode === "standard" && standardHeaderInfo) {
+      const dataRows = ensureDataRowsCount(
+        block.table,
+        standardHeaderInfo.headerRowIndex,
+        group.items.length,
+      );
+      for (let j = 0; j < dataRows.length; j++) {
+        const item = group.items[j] ?? { nombre: "", tipo: "", estado: "" };
+        setRowItemByColumns(doc, dataRows[j], item, standardHeaderInfo.cols);
+      }
+    } else if (mode === "fixes" && fixHeaderInfo) {
+      const dataRows = ensureDataRowsCount(
+        block.table,
+        fixHeaderInfo.headerRowIndex,
+        group.items.length,
+      );
+      for (let j = 0; j < dataRows.length; j++) {
+        const item = group.items[j] ?? {
+          nombre: "",
+          tipo: "",
+          identificador: "",
+          fechaHoraModificacion: "",
+          estado: "",
+        };
+        setRowFixItemByColumns(doc, dataRows[j], item, fixHeaderInfo.cols);
+      }
     }
   }
+}
+
+async function fillDetailedPieces(
+  template: Uint8Array,
+  piezasDetalladas: PiezasGrupo[],
+  detailedFixPieces: PiezasGrupo[] = [],
+): Promise<Uint8Array> {
+  if (!piezasDetalladas.length && !detailedFixPieces.length) return template;
+
+  const zip = await JSZip.loadAsync(template);
+  const xml = await zip.file("word/document.xml")?.async("string");
+  if (!xml) throw new Error("No se encontró word/document.xml");
+
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const mainTable = xpNodes("//w:tbl", doc).find((tbl) => {
+    const tx = normalizeKey(getTextDeep(tbl));
+    return (
+      tx.includes("listado de piezas detalladas (nuevos / modificados)") &&
+      tx.includes("listado de piezas detalladas para bugfix")
+    );
+  });
+  if (!mainTable) return template;
+  fillDetailedPiecesSection(
+    doc,
+    mainTable,
+    "listado de piezas detalladas (nuevos / modificados)",
+    piezasDetalladas,
+    "standard",
+  );
+  fillDetailedPiecesSection(
+    doc,
+    mainTable,
+    "listado de piezas detalladas para bugfix / hotfix / incidencia (nuevos / modificados)",
+    detailedFixPieces,
+    "fixes",
+  );
 
   const outXml = new XMLSerializer().serializeToString(doc);
   zip.file("word/document.xml", outXml);
@@ -632,7 +935,9 @@ async function fillDetailedPieces(
 
 export async function fillInfoGeneral(
   template: Uint8Array,
-  sections: UISection[]
+  sections: UISection[],
+  servicesProducts: string[] = [],
+  affectedAreas: string[] = [],
 ): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(template);
   const xml = await zip.file("word/document.xml")?.async("string");
@@ -718,6 +1023,8 @@ export async function fillInfoGeneral(
       | "NO"
   );
 
+  fillServicesAndAffectedAreas(doc, doc, servicesProducts, affectedAreas);
+
   const outXml = new XMLSerializer().serializeToString(doc);
   zip.file("word/document.xml", outXml);
   return await zip.generateAsync({ type: "uint8array" });
@@ -726,8 +1033,16 @@ export async function fillInfoGeneral(
 export async function fillManual(
   template: Uint8Array,
   sections: UISection[],
-  piezasDetalladas: PiezasGrupo[]
+  piezasDetalladas: PiezasGrupo[],
+  detailedFixPieces: PiezasGrupo[] = [],
+  servicesProducts: string[] = [],
+  affectedAreas: string[] = [],
 ): Promise<Uint8Array> {
-  const withInfo = await fillInfoGeneral(template, sections);
-  return await fillDetailedPieces(withInfo, piezasDetalladas);
+  const withInfo = await fillInfoGeneral(
+    template,
+    sections,
+    servicesProducts,
+    affectedAreas,
+  );
+  return await fillDetailedPieces(withInfo, piezasDetalladas, detailedFixPieces);
 }

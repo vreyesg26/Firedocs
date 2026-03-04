@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("ipc", {
   scan: (repoPaths: string[]) => ipcRenderer.invoke("git:scan", repoPaths),
   scanCommit: (repoPaths: string[], commitId: string) =>
     ipcRenderer.invoke("git:scan-commit", { repoPaths, commitId }),
+  gitLastModified: (repoPath: string, filePaths: string[]) =>
+    ipcRenderer.invoke("git:last-modified", { repoPath, filePaths }),
   scanDiscovered: () => ipcRenderer.invoke("git:scan-discovered"),
   startGitWatch: (repoPaths: string[]) =>
     ipcRenderer.invoke("git:watch-start", repoPaths),
@@ -55,6 +57,7 @@ contextBridge.exposeInMainWorld("ipc", {
       data: unknown;
       sections: unknown;
       detailedPieces: unknown;
+      detailedFixPieces?: unknown;
       templateBytesBase64: string | null;
     };
   }) => ipcRenderer.invoke("draft:save", payload),

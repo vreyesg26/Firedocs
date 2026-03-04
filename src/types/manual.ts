@@ -27,10 +27,21 @@ export interface PiezasItem {
   nombre: string;
   tipo: string;
   estado: "Nuevo" | "Modificado" | string;
+  identificador?: "Hotfix" | "Bugfix" | "Incidencia" | string;
+  fechaHoraModificacion?: string;
 }
 export interface PiezasGrupo {
   grupo: string;
   items: PiezasItem[];
+}
+
+export interface CommunicationMatrixRow {
+  country: string;
+  developerName: string;
+  developerContact: string;
+  repositories: string[];
+  bossName: string;
+  bossContact: string;
 }
 
 export interface KeyValueField {
@@ -41,6 +52,11 @@ export interface KeyValueField {
 export interface ManualExtract {
   camposDetectados: KeyValueField[];
   piezasDetalladas: PiezasGrupo[];
+  detailedFixPieces?: PiezasGrupo[];
+  servicesProducts?: string[];
+  affectedAreas?: string[];
+  repositoryNames?: string[];
+  communicationMatrix?: CommunicationMatrixRow[];
   seccionesReconocidas: UISection[];
   raw: { paragraphs: string[]; tables: string[][][] };
 }

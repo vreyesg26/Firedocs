@@ -5,6 +5,7 @@ export type RepoChange = {
   renameFrom?: string; // ruta anterior si es rename
   conflicted?: boolean; // true si hay conflicto
   ext?: string; // extensión del archivo (derivada)
+  lastModifiedAt?: string; // fecha/hora del último commit que tocó el archivo
   kind:
     | "modified"
     | "added"

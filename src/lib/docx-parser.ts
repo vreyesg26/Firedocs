@@ -209,13 +209,30 @@ export async function parseDocxArrayBuffer(
   // ===============================================
   
   const piezasDetalladas: PiezasGrupo[] = [];
+  const detailedFixPieces: PiezasGrupo[] = [];
   const procesedTableIndices = new Set<number>();
+  const processedFixTableIndices = new Set<number>();
 
   function isHeaderRow(row: string[]): boolean {
+    const lower = row.map((c) => normalize(c).toLowerCase());
+    const hasFixColumns =
+      lower.some((c) => c.includes("identificador")) ||
+      lower.some((c) => c.includes("fecha") && c.includes("hora"));
+    return (
+      !hasFixColumns &&
+      lower.some((c) => c === "nombre") &&
+      lower.some((c) => c === "tipo") &&
+      lower.some((c) => c.includes("nuevo") || c.includes("modificado"))
+    );
+  }
+
+  function isFixHeaderRow(row: string[]): boolean {
     const lower = row.map((c) => normalize(c).toLowerCase());
     return (
       lower.some((c) => c === "nombre") &&
       lower.some((c) => c === "tipo") &&
+      lower.some((c) => c.includes("identificador")) &&
+      lower.some((c) => c.includes("fecha") && c.includes("hora")) &&
       lower.some((c) => c.includes("nuevo") || c.includes("modificado"))
     );
   }
@@ -250,9 +267,83 @@ export async function parseDocxArrayBuffer(
     return null;
   }
 
+  for (let i = 0; i < tables.length; i++) {
+    const tbl = tables[i];
+    if (!tbl?.length) continue;
+
+    let headerRowIndex = -1;
+    for (let rowIdx = 0; rowIdx < Math.min(5, tbl.length); rowIdx++) {
+      if (isFixHeaderRow(tbl[rowIdx])) {
+        headerRowIndex = rowIdx;
+        break;
+      }
+    }
+    if (headerRowIndex === -1) continue;
+
+    const header = tbl[headerRowIndex];
+    const colNombre = header.findIndex((c) => /nombre/i.test(normalize(c)));
+    const colTipo = header.findIndex((c) => /tipo/i.test(normalize(c)));
+    const colIdentificador = header.findIndex((c) =>
+      /identificador/i.test(normalize(c)),
+    );
+    const colFecha = header.findIndex((c) =>
+      /fecha\s*\/?\s*hora/i.test(normalize(c)),
+    );
+    const colEstado = header.findIndex((c) =>
+      /(nuevo|modificado)/i.test(normalize(c)),
+    );
+
+    if (
+      colNombre === -1 ||
+      colTipo === -1 ||
+      colIdentificador === -1 ||
+      colFecha === -1 ||
+      colEstado === -1
+    ) {
+      continue;
+    }
+
+    const items: PiezasItem[] = [];
+    for (let rowIdx = headerRowIndex + 1; rowIdx < tbl.length; rowIdx++) {
+      const row = tbl[rowIdx];
+      if (!row) continue;
+
+      const nombre = normalize(row[colNombre] || "");
+      if (!nombre) continue;
+
+      const tipo = normalize(row[colTipo] || "");
+      const identificador = normalize(row[colIdentificador] || "");
+      const fechaHoraModificacion = normalize(row[colFecha] || "");
+      const estadoRaw = normalize(row[colEstado] || "");
+      const estado = /nuevo/i.test(estadoRaw)
+        ? "Nuevo"
+        : /modificado/i.test(estadoRaw)
+          ? "Modificado"
+          : "Modificado";
+
+      items.push({
+        nombre,
+        tipo,
+        estado,
+        identificador,
+        fechaHoraModificacion,
+      });
+    }
+
+    if (!items.length) continue;
+
+    const groupTitle = findTableTitleInContext(i) || `Grupo ${detailedFixPieces.length + 1}`;
+    detailedFixPieces.push({
+      grupo: groupTitle,
+      items,
+    });
+    processedFixTableIndices.add(i);
+  }
+
   // Procesar tablas en el rango de piezas detalladas
   for (let i = startIndexDetailed; i < endIndexDetailed; i++) {
     if (procesedTableIndices.has(i)) continue;
+    if (processedFixTableIndices.has(i)) continue;
 
     const tbl = tables[i];
     if (!tbl?.length) continue;
@@ -618,6 +709,8 @@ export async function parseDocxArrayBuffer(
   })();
 
   const seccionesReconocidas: UISection[] = [];
+  let servicesProducts: string[] = [];
+  let affectedAreas: string[] = [];
 
   function findInfoGeneralTable(tables: any[][][]): any[][] | null {
     for (const tbl of tables) {
@@ -723,6 +816,76 @@ export async function parseDocxArrayBuffer(
   }
 
   const infoTbl = findInfoGeneralTable(tables);
+
+  function normalizeSearch(s: string) {
+    return normalize(s)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function extractListValueRows(rows: string[][]): string[] {
+    const out: string[] = [];
+    for (const row of rows) {
+      const nonEmpty = row.map((cell) => normalize(cell)).filter(Boolean);
+      if (!nonEmpty.length) continue;
+      if (nonEmpty.length > 1) continue;
+
+      const value = nonEmpty[0];
+      const normalizedValue = normalizeSearch(value);
+      if (
+        normalizedValue.startsWith("paso ") ||
+        normalizedValue.includes("listado de piezas detalladas") ||
+        normalizedValue.includes("listado de fuentes afectados") ||
+        normalizedValue.includes("repositorio") ||
+        normalizedValue.includes("anexos")
+      ) {
+        continue;
+      }
+
+      out.push(value);
+    }
+    return out;
+  }
+
+  function extractServicesAndAreas(table: string[][]) {
+    const servicesTitleIndex = table.findIndex((row) =>
+      normalizeSearch(row.join(" ")).includes(
+        "listar servicios/productos que estan relacionados y que se veran impactados",
+      ),
+    );
+
+    const areasTitleIndex = table.findIndex((row) =>
+      normalizeSearch(row.join(" ")).includes(
+        "listar areas que se veran impactadas",
+      ),
+    );
+
+    if (servicesTitleIndex === -1 || areasTitleIndex === -1) {
+      return { services: [], areas: [] };
+    }
+
+    const servicesRows = table.slice(servicesTitleIndex + 1, areasTitleIndex);
+    const areasRows = table.slice(areasTitleIndex + 1);
+
+    return {
+      services: extractListValueRows(servicesRows),
+      areas: extractListValueRows(areasRows),
+    };
+  }
+
+  for (const table of tables) {
+    const extracted = extractServicesAndAreas(table);
+    if (extracted.services.length) {
+      servicesProducts = extracted.services;
+    }
+    if (extracted.areas.length) {
+      affectedAreas = extracted.areas;
+    }
+    if (servicesProducts.length || affectedAreas.length) {
+      break;
+    }
+  }
 
   if (infoTbl) {
     const idCambio = extractIdCambio(infoTbl);
@@ -832,6 +995,9 @@ export async function parseDocxArrayBuffer(
   return {
     camposDetectados,
     piezasDetalladas,
+    detailedFixPieces,
+    servicesProducts,
+    affectedAreas,
     seccionesReconocidas,
     raw: { paragraphs, tables },
   };

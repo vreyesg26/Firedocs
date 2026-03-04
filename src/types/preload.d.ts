@@ -20,6 +20,10 @@ declare global {
         repoPaths: string[],
         commitId: string
       ) => Promise<import("@/types/git").RepoStatus[]>;
+      gitLastModified: (
+        repoPath: string,
+        filePaths: string[]
+      ) => Promise<Record<string, string>>;
       scanDiscovered: () => Promise<import("@/types/git").RepoStatus[]>;
       startGitWatch: (repoPaths: string[]) => Promise<boolean>;
       stopGitWatch: (repoPaths?: string[]) => Promise<boolean>;
@@ -80,6 +84,7 @@ declare global {
           data: unknown;
           sections: unknown;
           detailedPieces: unknown;
+          detailedFixPieces?: unknown;
           templateBytesBase64: string | null;
         };
       }) => Promise<{
@@ -104,6 +109,7 @@ declare global {
               data: unknown;
               sections: unknown;
               detailedPieces: unknown;
+              detailedFixPieces?: unknown;
               templateBytesBase64: string | null;
             };
           }

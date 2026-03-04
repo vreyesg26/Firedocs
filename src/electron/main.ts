@@ -114,6 +114,7 @@ type StoredDraftFile = {
     data: unknown;
     sections: unknown;
     detailedPieces: unknown;
+    detailedFixPieces?: unknown;
     templateBytesBase64: string | null;
   };
 };
@@ -165,6 +166,14 @@ function safeDraftFilePath(id: string) {
   const base = path.basename(id);
   if (!base || base !== id) return null;
   return path.join(draftsDir(), base);
+}
+
+function normalizeDraftName(name: string) {
+  return (name || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 async function readStoredDraft(filePath: string): Promise<StoredDraftFile | null> {
@@ -239,6 +248,7 @@ function repoSignature(repo: RepoStatus) {
       ch.worktree,
       Boolean(ch.conflicted),
       ch.renameFrom ?? "",
+      ch.lastModifiedAt ?? "",
     ]),
   });
 }
@@ -319,6 +329,7 @@ type RepoChange = {
   renameFrom?: string;
   conflicted?: boolean;
   ext?: string;
+  lastModifiedAt?: string;
   kind:
     | "modified"
     | "added"
@@ -424,6 +435,13 @@ async function scanReposByCommit(
         "--no-renames",
         commitRef,
       ]);
+      const commitDateRaw = await git.raw([
+        "show",
+        "-s",
+        "--format=%cI",
+        commitRef,
+      ]);
+      const commitDate = commitDateRaw.trim() || undefined;
 
       const changes: RepoChange[] = [];
       for (const rawLine of showRaw.split(/\r?\n/)) {
@@ -449,6 +467,7 @@ async function scanReposByCommit(
           index: statusLetter,
           conflicted: false,
           ext: path.extname(filePath) || undefined,
+          lastModifiedAt: commitDate,
           kind,
         });
       }
@@ -465,6 +484,39 @@ async function scanReposByCommit(
       // Ignoramos repos donde el commit no existe o no se puede leer.
     }
   }
+
+  return out;
+}
+
+async function lastModifiedByPath(
+  repoPath: string,
+  filePaths: string[],
+): Promise<Record<string, string>> {
+  if (!repoPath || !Array.isArray(filePaths) || filePaths.length === 0) {
+    return {};
+  }
+
+  const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: GIT_BINARY });
+  const uniquePaths = Array.from(
+    new Set(
+      filePaths
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const out: Record<string, string> = {};
+  await Promise.all(
+    uniquePaths.map(async (filePath) => {
+      try {
+        const raw = await git.raw(["log", "-1", "--format=%cI", "--", filePath]);
+        const iso = raw.trim();
+        if (iso) out[filePath] = iso;
+      } catch {
+        // Ignoramos archivos sin historial en git.
+      }
+    }),
+  );
 
   return out;
 }
@@ -514,6 +566,7 @@ function registerGitIpcHandlers() {
   ipcMain.removeHandler("git:discover");
   ipcMain.removeHandler("git:scan");
   ipcMain.removeHandler("git:scan-commit");
+  ipcMain.removeHandler("git:last-modified");
   ipcMain.removeHandler("git:scan-discovered");
   ipcMain.removeHandler("git:watch-start");
   ipcMain.removeHandler("git:watch-stop");
@@ -554,6 +607,21 @@ function registerGitIpcHandlers() {
       if (!Array.isArray(repoPaths) || repoPaths.length === 0) return [];
       if (!commitId.trim()) return [];
       return await scanReposByCommit(repoPaths, commitId);
+    },
+  );
+
+  ipcMain.handle(
+    "git:last-modified",
+    async (
+      _evt,
+      payload: { repoPath?: string; filePaths?: string[] } | undefined,
+    ) => {
+      const repoPath = payload?.repoPath ?? "";
+      const filePaths = payload?.filePaths ?? [];
+      if (!repoPath || !Array.isArray(filePaths) || filePaths.length === 0) {
+        return {};
+      }
+      return await lastModifiedByPath(repoPath, filePaths);
     },
   );
 
@@ -804,9 +872,31 @@ function registerDraftIpcHandlers() {
         if (prev?.createdAt) createdAt = prev.createdAt;
       }
 
-      const name = (payload?.name ?? "").trim() || "Sin título";
+      const name = (payload?.name ?? "").trim();
       const state = payload?.state;
       if (!state) return null;
+      if (!name || normalizeDraftName(name) === "sin titulo") {
+        throw new Error("El título del borrador es requerido.");
+      }
+
+      const existingFiles = (await fsp.readdir(draftsDir())).filter((f) =>
+        f.endsWith(".fdd"),
+      );
+      const requestedIdNorm = path.basename(id);
+      const requestedNameNorm = normalizeDraftName(name);
+
+      for (const fileName of existingFiles) {
+        const candidatePath = path.join(draftsDir(), fileName);
+        const stored = await readStoredDraft(candidatePath);
+        if (!stored?.name) continue;
+        const isSameDraft = path.basename(fileName) === requestedIdNorm;
+        if (isSameDraft) continue;
+        if (normalizeDraftName(stored.name) === requestedNameNorm) {
+          throw new Error(
+            "Ya existe otro borrador con ese nombre. Usa un título diferente.",
+          );
+        }
+      }
 
       const dataToSave: StoredDraftFile = {
         version: 1,

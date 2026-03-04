@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader,
   Container,
@@ -22,7 +22,7 @@ import {
   IconFileUpload,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import {
   EighthStep,
   EleventhStep,
@@ -48,6 +48,8 @@ export default function StepsPage() {
     setManualTitle,
     activeStep,
     setActiveStep,
+    draftId,
+    hasUnsavedChanges,
     saveCurrentDraft,
   } = useManual();
   const normalizedActiveStep =
@@ -57,6 +59,7 @@ export default function StepsPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
   const [active, setActive] = useState<number>(normalizedActiveStep);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const completed = active === steps.length;
 
   useEffect(() => {
@@ -86,6 +89,12 @@ export default function StepsPage() {
       : (step?.description ?? "Manuales automatizados");
     void window.ipc.setWindowTitle(title);
   }, [active, completed]);
+
+  useEffect(() => {
+    if (!isEditingTitle) return;
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [isEditingTitle]);
 
   async function handleSaveDraft() {
     setDraftSaving(true);
@@ -138,20 +147,17 @@ export default function StepsPage() {
   };
 
   if (!data || !sections) {
-    return (
-      <Container>
-        <Text>No hay datos cargados</Text>
-      </Container>
-    );
+    return <Navigate to="/" replace />;
   }
 
   return (
     <Container
       fluid
       px="lg"
-      py="md"
+      pt="md"
+      pb={0}
       style={{
-        minHeight: "calc(100vh - 60px - (var(--mantine-spacing-md) * 2))",
+        minHeight: "calc(100dvh - 60px)",
         display: "flex",
         flexDirection: "column",
       }}
@@ -168,36 +174,76 @@ export default function StepsPage() {
               size='1.5rem'
             />
           </ActionIcon>
-          <Box style={{ minWidth: 0, flex: 1 }}>
-            {isEditingTitle ? (
-              <TextInput
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.currentTarget.value)}
-                onBlur={() => setIsEditingTitle(false)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") setIsEditingTitle(false);
-                }}
-                autoFocus
-              />
-            ) : (
-              <Title
-                fw={700}
-                order={2}
-                onDoubleClick={() => setIsEditingTitle(true)}
-                style={{ cursor: "text" }}
-              >
-                {manualTitle || "Sin título"}
-              </Title>
-            )}
-          </Box>
-          <Button
-            color={mainColor}
-            onClick={handleSaveDraft}
-            disabled={draftSaving}
-            rightSection={draftSaving ? <Loader size={14} color="white" /> : null}
+          <Box
+            style={{
+              minWidth: 0,
+              flex: 1,
+              height:
+                "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+              position: "relative",
+            }}
           >
-            Guardar borrador
-          </Button>
+            <Title
+              fw={700}
+              order={2}
+              onDoubleClick={() => setIsEditingTitle(true)}
+              style={{
+                cursor: "text",
+                lineHeight: "var(--mantine-h2-line-height)",
+                margin: 0,
+                position: "absolute",
+                inset: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                opacity: isEditingTitle ? 0 : 1,
+                pointerEvents: isEditingTitle ? "none" : "auto",
+              }}
+            >
+              {manualTitle || "Sin título"}
+            </Title>
+            <TextInput
+              ref={titleInputRef}
+              value={manualTitle}
+              onChange={(e) => setManualTitle(e.currentTarget.value)}
+              onBlur={() => setIsEditingTitle(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setIsEditingTitle(false);
+              }}
+              variant="unstyled"
+              styles={{
+                root: {
+                  width: "100%",
+                  position: "absolute",
+                  inset: 0,
+                  opacity: isEditingTitle ? 1 : 0,
+                  pointerEvents: isEditingTitle ? "auto" : "none",
+                },
+                input: {
+                  width: "100%",
+                  padding: 0,
+                  margin: 0,
+                  height:
+                    "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+                  minHeight:
+                    "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+                  lineHeight: "var(--mantine-h2-line-height)",
+                  fontSize: "var(--mantine-h2-font-size)",
+                  fontWeight: 700,
+                },
+              }}
+            />
+          </Box>
+          {(!draftId || hasUnsavedChanges) && (
+            <Button
+              color={mainColor}
+              onClick={handleSaveDraft}
+              disabled={draftSaving}
+              rightSection={draftSaving ? <Loader size={14} color="white" /> : null}
+            >
+              {draftId ? "Guardar borrador" : "Crear borrador"}
+            </Button>
+          )}
         </Flex>
       </Card>
 
@@ -213,41 +259,45 @@ export default function StepsPage() {
         <Text c="dimmed">{percent}%</Text>
       </Group>
 
-      <Box mt="md">{renderStepContent()}</Box>
+      <Box my="md">
+        {renderStepContent()}
+      </Box>
 
-      <Group justify="space-between" mt="auto" pt="xl">
-        <Button
-          leftSection={<IconChevronLeft size="1.1rem" />}
-          variant="default"
-          onClick={prev}
-          disabled={active === 0}
-        >
-          Atrás
-        </Button>
+      <Box mt="auto" style={{ flexShrink: 0 }}>
+        <Group justify="space-between" align="center" wrap="wrap" gap="xs">
+          <Button
+            leftSection={<IconChevronLeft size="1.1rem" />}
+            variant="default"
+            onClick={prev}
+            disabled={active === 0}
+          >
+            Atrás
+          </Button>
 
-        <Flex gap="xs">
-          <Button
-            leftSection={<IconFileUpload size="1.1rem" />}
-            onClick={handleExport}
-            variant="outline"
-            color="gray"
-          >
-            Exportar
-          </Button>
-          <Button
-            rightSection={<IconChevronRight size="1.1rem" />}
-            onClick={next}
-            disabled={completed}
-            color={mainColor}
-          >
-            {completed
-              ? "Listo"
-              : active < steps.length - 1
-                ? "Siguiente"
-                : "Finalizar"}
-          </Button>
-        </Flex>
-      </Group>
+          <Flex gap="xs" wrap="wrap" justify="flex-end" style={{ marginLeft: "auto" }}>
+            <Button
+              leftSection={<IconFileUpload size="1.1rem" />}
+              onClick={handleExport}
+              variant="outline"
+              color="gray"
+            >
+              Exportar
+            </Button>
+            <Button
+              rightSection={<IconChevronRight size="1.1rem" />}
+              onClick={next}
+              disabled={completed}
+              color={mainColor}
+            >
+              {completed
+                ? "Listo"
+                : active < steps.length - 1
+                  ? "Siguiente"
+                  : "Finalizar"}
+            </Button>
+          </Flex>
+        </Group>
+      </Box>
     </Container>
   );
 }

@@ -1,12 +1,5 @@
-import { Divider, Title } from "@mantine/core";
+import { PiecesTablesStep } from "./PiecesTablesStep";
 
 export const ThirdStep = () => {
-  return (
-    <>
-      <Title order={2}>
-        Listado de piezas detalladas (BF / HF / Incidencia)
-      </Title>
-      <Divider my="xs" />
-    </>
-  );
+  return <PiecesTablesStep variant="fixes" />;
 };

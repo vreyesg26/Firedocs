@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { parseDocxArrayBuffer } from "@/lib/docx-parser";
 import { fillManual } from "@/lib/docx-writer";
 import type {
@@ -6,6 +6,7 @@ import type {
   UISection,
   UIField,
   PiezasGrupo,
+  CommunicationMatrixRow,
 } from "@/types/manual";
 import type { RepoStatus } from "@/types/git";
 import { countryOptions } from "@/lib/constants";
@@ -21,6 +22,30 @@ function uint8ToB64(bytes: Uint8Array) {
   let out = "";
   for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
   return btoa(out);
+}
+
+function buildDraftSnapshot(input: {
+  manualTitle: string;
+  activeStep: number;
+  sections: UISection[] | null;
+  detailedPieces: PiezasGrupo[];
+  detailedFixPieces: PiezasGrupo[];
+  servicesProducts: string[];
+  affectedAreas: string[];
+  repositoryNames: string[];
+  communicationMatrix: CommunicationMatrixRow[];
+}) {
+  return JSON.stringify({
+    manualTitle: (input.manualTitle || "").trim(),
+    activeStep: Number.isFinite(input.activeStep) ? input.activeStep : 0,
+    sections: input.sections ?? [],
+    detailedPieces: input.detailedPieces ?? [],
+    detailedFixPieces: input.detailedFixPieces ?? [],
+    servicesProducts: input.servicesProducts ?? [],
+    affectedAreas: input.affectedAreas ?? [],
+    repositoryNames: input.repositoryNames ?? [],
+    communicationMatrix: input.communicationMatrix ?? [],
+  });
 }
 
 function titleFromFilePath(filePath: string) {
@@ -47,9 +72,10 @@ function anyToUint8(input: unknown): Uint8Array | null {
     const looksIndexed =
       keys.length > 0 && keys.every((k) => /^\d+$/.test(k) || k === "length");
     if (looksIndexed) {
+      const indexed = input as { length?: unknown; [key: string]: unknown };
       const arr = Array.from(
-        { length: Number(input.length ?? keys.length) },
-        (_, i) => Number(input[i] ?? 0)
+        { length: Number(indexed.length ?? keys.length) },
+        (_, i) => Number(indexed[String(i)] ?? 0)
       );
       return Uint8Array.from(arr);
     }
@@ -61,6 +87,38 @@ function anyToUint8(input: unknown): Uint8Array | null {
   return null;
 }
 
+function sanitizeTextList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length > 0);
+}
+
+function sanitizeCommunicationMatrix(values: unknown): CommunicationMatrixRow[] {
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .map((value) => {
+      const row = (value ?? {}) as Record<string, unknown>;
+      return {
+        country: String(row.country ?? "").trim().toUpperCase(),
+        developerName: String(row.developerName ?? "").trim(),
+        developerContact: String(row.developerContact ?? "").trim(),
+        repositories: sanitizeTextList(row.repositories),
+        bossName: String(row.bossName ?? "").trim(),
+        bossContact: String(row.bossContact ?? "").trim(),
+      } satisfies CommunicationMatrixRow;
+    })
+    .filter(
+      (row) =>
+        row.developerName ||
+        row.developerContact ||
+        row.repositories.length > 0 ||
+        row.bossName ||
+        row.bossContact,
+    );
+}
+
 export function useManualManager() {
   const [data, setData] = useState<ManualExtract | null>(null);
   const [sections, setSections] = useState<UISection[] | null>(null);
@@ -68,12 +126,54 @@ export function useManualManager() {
   const [manualTitle, setManualTitle] = useState("Sin título");
   const [activeStep, setActiveStep] = useState(0);
   const [draftId, setDraftId] = useState<string | null>(null);
+  const [lastSavedDraftSnapshot, setLastSavedDraftSnapshot] = useState<
+    string | null
+  >(null);
 
   const [gitModalOpen, setGitModalOpen] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitData, setGitData] = useState<RepoStatus[]>([]);
 
   const [detailedPieces, setDetailedPieces] = useState<PiezasGrupo[]>([]);
+  const [detailedFixPieces, setDetailedFixPieces] = useState<PiezasGrupo[]>(
+    [],
+  );
+  const [servicesProducts, setServicesProducts] = useState<string[]>([""]);
+  const [affectedAreas, setAffectedAreas] = useState<string[]>([""]);
+  const [repositoryNames, setRepositoryNames] = useState<string[]>([]);
+  const [communicationMatrix, setCommunicationMatrix] = useState<
+    CommunicationMatrixRow[]
+  >([]);
+
+  const currentDraftSnapshot = useMemo(
+    () =>
+      buildDraftSnapshot({
+        manualTitle,
+        activeStep,
+        sections,
+        detailedPieces,
+        detailedFixPieces,
+        servicesProducts,
+        affectedAreas,
+        repositoryNames,
+        communicationMatrix,
+      }),
+    [
+      manualTitle,
+      activeStep,
+      sections,
+      detailedPieces,
+      detailedFixPieces,
+      servicesProducts,
+      affectedAreas,
+      repositoryNames,
+      communicationMatrix,
+    ],
+  );
+
+  const hasUnsavedChanges = draftId
+    ? currentDraftSnapshot !== lastSavedDraftSnapshot
+    : true;
 
   async function loadFromTemplateBytes(bytes: Uint8Array) {
     const parsed = await parseDocxArrayBuffer(bytes);
@@ -184,9 +284,25 @@ export function useManualManager() {
     setData(parsed);
     setSections(norm);
     setDetailedPieces(parsed.piezasDetalladas ?? []);
+    setDetailedFixPieces(parsed.detailedFixPieces ?? []);
+    setServicesProducts(
+      Array.isArray(parsed.servicesProducts) && parsed.servicesProducts.length > 0
+        ? parsed.servicesProducts
+        : [""],
+    );
+    setAffectedAreas(
+      Array.isArray(parsed.affectedAreas) && parsed.affectedAreas.length > 0
+        ? parsed.affectedAreas
+        : [""],
+    );
+    setRepositoryNames(sanitizeTextList(parsed.repositoryNames));
+    setCommunicationMatrix(
+      sanitizeCommunicationMatrix(parsed.communicationMatrix),
+    );
     setManualTitle("Sin título");
     setActiveStep(0);
     setDraftId(null);
+    setLastSavedDraftSnapshot(null);
     return true;
   }
 
@@ -219,7 +335,14 @@ export function useManualManager() {
     if (!sections || sections.length === 0)
       throw new Error("No hay datos de Información general para exportar.");
 
-    const out = await fillManual(templateBytes, sections, detailedPieces);
+    const out = await fillManual(
+      templateBytes,
+      sections,
+      detailedPieces,
+      detailedFixPieces,
+      servicesProducts,
+      affectedAreas,
+    );
     await window.ipc.saveDocx(out, "Manual-actualizado.docx");
   }
 
@@ -229,15 +352,41 @@ export function useManualManager() {
   }
 
   async function saveCurrentDraft() {
+    const rawTitle = manualTitle.trim();
+    const normalizedTitle = rawTitle
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    if (!rawTitle || normalizedTitle === "sin titulo") {
+      throw new Error("El título del borrador es requerido.");
+    }
+
+    const cleanedServicesProducts = sanitizeTextList(servicesProducts);
+    const cleanedAffectedAreas = sanitizeTextList(affectedAreas);
+    const cleanedRepositoryNames = sanitizeTextList(repositoryNames);
+    const cleanedCommunicationMatrix =
+      sanitizeCommunicationMatrix(communicationMatrix);
+
+    setServicesProducts(cleanedServicesProducts);
+    setAffectedAreas(cleanedAffectedAreas);
+    setRepositoryNames(cleanedRepositoryNames);
+    setCommunicationMatrix(cleanedCommunicationMatrix);
+
     const payload = {
       id: draftId ?? undefined,
-      name: manualTitle.trim() || "Sin título",
+      name: rawTitle,
       state: {
-        manualTitle: manualTitle.trim() || "Sin título",
+        manualTitle: rawTitle,
         activeStep,
         data,
         sections,
         detailedPieces,
+        detailedFixPieces,
+        servicesProducts: cleanedServicesProducts,
+        affectedAreas: cleanedAffectedAreas,
+        repositoryNames: cleanedRepositoryNames,
+        communicationMatrix: cleanedCommunicationMatrix,
         templateBytesBase64: templateBytes ? uint8ToB64(templateBytes) : null,
       },
     };
@@ -245,6 +394,19 @@ export function useManualManager() {
     const saved = await window.ipc.draftSave(payload);
     if (saved?.id) {
       setDraftId(saved.id);
+      setLastSavedDraftSnapshot(
+        buildDraftSnapshot({
+          manualTitle: rawTitle,
+          activeStep,
+          sections,
+          detailedPieces,
+          detailedFixPieces,
+          servicesProducts: cleanedServicesProducts,
+          affectedAreas: cleanedAffectedAreas,
+          repositoryNames: cleanedRepositoryNames,
+          communicationMatrix: cleanedCommunicationMatrix,
+        }),
+      );
     }
     return saved;
   }
@@ -253,10 +415,33 @@ export function useManualManager() {
     const draft = await window.ipc.draftRead(id);
     if (!draft?.state) return false;
 
-    const state = draft.state;
+    const state = draft.state as {
+      manualTitle?: string;
+      activeStep?: number;
+      data?: unknown;
+      sections?: unknown;
+      detailedPieces?: unknown;
+      detailedFixPieces?: unknown;
+      servicesProducts?: unknown;
+      affectedAreas?: unknown;
+      repositoryNames?: unknown;
+      communicationMatrix?: unknown;
+      templateBytesBase64?: string | null;
+    };
     setData((state.data as ManualExtract | null) ?? null);
     setSections((state.sections as UISection[] | null) ?? null);
     setDetailedPieces((state.detailedPieces as PiezasGrupo[]) ?? []);
+    setDetailedFixPieces((state.detailedFixPieces as PiezasGrupo[]) ?? []);
+    const loadedServicesProducts = sanitizeTextList(state.servicesProducts);
+    const loadedAffectedAreas = sanitizeTextList(state.affectedAreas);
+    const loadedRepositoryNames = sanitizeTextList(state.repositoryNames);
+    const loadedCommunicationMatrix = sanitizeCommunicationMatrix(
+      state.communicationMatrix,
+    );
+    setServicesProducts(loadedServicesProducts);
+    setAffectedAreas(loadedAffectedAreas);
+    setRepositoryNames(loadedRepositoryNames);
+    setCommunicationMatrix(loadedCommunicationMatrix);
     setTemplateBytes(
       state.templateBytesBase64 ? b64ToUint8(state.templateBytesBase64) : null,
     );
@@ -267,6 +452,21 @@ export function useManualManager() {
         : 0,
     );
     setDraftId(draft.id);
+    setLastSavedDraftSnapshot(
+      buildDraftSnapshot({
+        manualTitle: (state.manualTitle || "Sin título").trim() || "Sin título",
+        activeStep: Number.isFinite(state.activeStep)
+          ? Math.max(0, Number(state.activeStep))
+          : 0,
+        sections: (state.sections as UISection[] | null) ?? null,
+        detailedPieces: (state.detailedPieces as PiezasGrupo[]) ?? [],
+        detailedFixPieces: (state.detailedFixPieces as PiezasGrupo[]) ?? [],
+        servicesProducts: loadedServicesProducts,
+        affectedAreas: loadedAffectedAreas,
+        repositoryNames: loadedRepositoryNames,
+        communicationMatrix: loadedCommunicationMatrix,
+      }),
+    );
     return true;
   }
 
@@ -274,6 +474,7 @@ export function useManualManager() {
     const ok = await window.ipc.draftDelete(id);
     if (ok && draftId === id) {
       setDraftId(null);
+      setLastSavedDraftSnapshot(null);
     }
     return ok;
   }
@@ -282,16 +483,27 @@ export function useManualManager() {
     data,
     sections,
     detailedPieces,
+    detailedFixPieces,
+    servicesProducts,
+    affectedAreas,
+    repositoryNames,
+    communicationMatrix,
     templateBytes,
     manualTitle,
     activeStep,
     draftId,
+    hasUnsavedChanges,
     gitModalOpen,
     gitLoading,
     gitData,
 
     setSections,
     setDetailedPieces,
+    setDetailedFixPieces,
+    setServicesProducts,
+    setAffectedAreas,
+    setRepositoryNames,
+    setCommunicationMatrix,
     setManualTitle,
     setActiveStep,
     setGitData,
