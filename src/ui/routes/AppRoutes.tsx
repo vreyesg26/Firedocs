@@ -3,6 +3,7 @@ import Layout from "../App";
 import StepsPage from "../pages/StepsPage";
 import HomePage from "../pages/HomePage";
 import TemplatesPage from "../pages/TemplatesPage";
+import DraftsPage from "../pages/DraftsPage";
 
 export default function AppRoutes() {
   const Router =
@@ -18,6 +19,7 @@ export default function AppRoutes() {
 
         <Route element={<Layout />}>
           <Route path="/templates" element={<TemplatesPage />} />
+          <Route path="/drafts" element={<DraftsPage />} />
           <Route path="/import" element={<StepsPage />} />
           <Route path="/editor" element={<StepsPage />} />
         </Route>

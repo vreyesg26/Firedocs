@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Box,
   Button,
@@ -16,6 +17,7 @@ import {
   Title,
 } from "@mantine/core";
 import {
+  IconArrowLeft,
   IconFileDescription,
   IconPlus,
   IconEye,
@@ -141,6 +143,10 @@ export default function TemplatesPage() {
   }
 
   useEffect(() => {
+    void window.ipc.setWindowTitle("Plantilla existente");
+  }, []);
+
+  useEffect(() => {
     refreshTemplates();
   }, []);
 
@@ -167,7 +173,17 @@ export default function TemplatesPage() {
   return (
     <Container fluid px="lg" py="md">
       <Flex justify="space-between" align="center" mb="md">
-        <Title order={2}>Usar plantilla existente</Title>
+        <Group gap="xs" align="center">
+          <ActionIcon
+            variant="subtle"
+            color='white'
+            onClick={() => navigate("/")}
+            aria-label="Volver al inicio"
+          >
+            <IconArrowLeft size="1.5rem" />
+          </ActionIcon>
+          <Title order={2}>Usar plantilla existente</Title>
+        </Group>
         <Button
           leftSection={<IconPlus size={16} />}
           onClick={handleImportTemplate}
@@ -178,7 +194,7 @@ export default function TemplatesPage() {
         </Button>
       </Flex>
 
-      <Divider mb="lg" />
+      <Divider my="xs" />
 
       {!hasTemplates ? (
         <Flex
@@ -224,7 +240,7 @@ export default function TemplatesPage() {
                     </Text>
                   </Box>
                   {selectedId === tpl.id && (
-                    <Badge color={mainColor} variant="light">
+                    <Badge color={mainColor} variant="filled">
                       Seleccionada
                     </Badge>
                   )}

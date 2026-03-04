@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Loader,
   Container,
   Progress,
   Group,
@@ -7,15 +8,21 @@ import {
   Button,
   Box,
   Flex,
+  TextInput,
+  Title,
+  Card,
+  ActionIcon,
 } from "@mantine/core";
 import { steps } from "@/lib/constants";
 import { useManual } from "@/context/ManualContext";
 import {
+  IconArrowLeft,
   IconChevronLeft,
   IconChevronRight,
   IconFileUpload,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 import {
   EighthStep,
   EleventhStep,
@@ -32,17 +39,70 @@ import {
 } from "./steps";
 
 export default function StepsPage() {
-  const { data, sections, handleExport } = useManual();
-  const [active, setActive] = useState(0);
+  const navigate = useNavigate();
+  const {
+    data,
+    sections,
+    handleExport,
+    manualTitle,
+    setManualTitle,
+    activeStep,
+    setActiveStep,
+    saveCurrentDraft,
+  } = useManual();
+  const normalizedActiveStep =
+    typeof activeStep === "number" && Number.isFinite(activeStep)
+      ? activeStep
+      : 0;
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [active, setActive] = useState<number>(normalizedActiveStep);
   const completed = active === steps.length;
+
+  useEffect(() => {
+    setActive(normalizedActiveStep);
+  }, [normalizedActiveStep]);
 
   const percent = useMemo(
     () => Math.round((active / steps.length) * 100),
     [active],
   );
 
-  const next = () => setActive((a) => Math.min(a + 1, steps.length));
-  const prev = () => setActive((a) => Math.max(a - 1, 0));
+  const next = () => {
+    const nextStep = Math.min(active + 1, steps.length);
+    setActive(nextStep);
+    setActiveStep(nextStep);
+  };
+  const prev = () => {
+    const prevStep = Math.max(active - 1, 0);
+    setActive(prevStep);
+    setActiveStep(prevStep);
+  };
+
+  useEffect(() => {
+    const step = steps[active];
+    const title = completed
+      ? "Manual completado"
+      : (step?.description ?? "Manuales automatizados");
+    void window.ipc.setWindowTitle(title);
+  }, [active, completed]);
+
+  async function handleSaveDraft() {
+    setDraftSaving(true);
+    try {
+      const saved = await saveCurrentDraft();
+      if (saved?.id) {
+        alert("Borrador guardado correctamente.");
+      } else {
+        alert("No se pudo guardar el borrador.");
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      alert(msg);
+    } finally {
+      setDraftSaving(false);
+    }
+  }
 
   const renderStepContent = () => {
     const key = steps[active]?.key;
@@ -96,14 +156,64 @@ export default function StepsPage() {
         flexDirection: "column",
       }}
     >
-      <Group justify="space-between" mb="xs">
+      <Card withBorder>
+        <Flex justify="space-between" align="center" gap="xs">
+          <ActionIcon
+            variant="subtle"
+            color='white'
+            onClick={() => navigate("/drafts")}
+            aria-label="Volver a borradores"
+          >
+            <IconArrowLeft
+              size='1.5rem'
+            />
+          </ActionIcon>
+          <Box style={{ minWidth: 0, flex: 1 }}>
+            {isEditingTitle ? (
+              <TextInput
+                value={manualTitle}
+                onChange={(e) => setManualTitle(e.currentTarget.value)}
+                onBlur={() => setIsEditingTitle(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setIsEditingTitle(false);
+                }}
+                autoFocus
+              />
+            ) : (
+              <Title
+                fw={700}
+                order={2}
+                onDoubleClick={() => setIsEditingTitle(true)}
+                style={{ cursor: "text" }}
+              >
+                {manualTitle || "Sin título"}
+              </Title>
+            )}
+          </Box>
+          <Button
+            color={mainColor}
+            onClick={handleSaveDraft}
+            disabled={draftSaving}
+            rightSection={draftSaving ? <Loader size={14} color="white" /> : null}
+          >
+            Guardar borrador
+          </Button>
+        </Flex>
+      </Card>
+
+      <Progress
+        color={mainColor}
+        value={percent}
+        size="lg"
+        radius="sm"
+        mt="md"
+      />
+      <Group justify="space-between" my="xs">
         <Text fw={600}>Progreso del manual</Text>
         <Text c="dimmed">{percent}%</Text>
       </Group>
 
-      <Progress color={mainColor} value={percent} size="lg" radius="sm" />
-
-      <Box mt="xl">{renderStepContent()}</Box>
+      <Box mt="md">{renderStepContent()}</Box>
 
       <Group justify="space-between" mt="auto" pt="xl">
         <Button

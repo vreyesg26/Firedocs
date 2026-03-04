@@ -14,6 +14,12 @@ const __dirname = path.dirname(__filename);
 
 const isDev =
   !!process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === "development";
+const APP_NAME = "FireDocs";
+
+function buildWindowTitle(section?: string) {
+  const suffix = (section ?? "").trim();
+  return suffix ? `${APP_NAME} | ${suffix}` : APP_NAME;
+}
 
 function resolveGitBinary() {
   if (process.platform !== "win32") return "git";
@@ -97,6 +103,21 @@ type StoredTemplateFile = {
   docxBase64: string;
 };
 
+type StoredDraftFile = {
+  version: 1;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  state: {
+    manualTitle: string;
+    activeStep: number;
+    data: unknown;
+    sections: unknown;
+    detailedPieces: unknown;
+    templateBytesBase64: string | null;
+  };
+};
+
 function buildTemplateId() {
   const short = randomUUID().split("-")[0];
   return `tpl-${Date.now()}-${short}`;
@@ -124,12 +145,45 @@ async function readStoredTemplate(filePath: string): Promise<StoredTemplateFile 
   }
 }
 
+function buildDraftId() {
+  const short = randomUUID().split("-")[0];
+  return `draft-${Date.now()}-${short}.fdd`;
+}
+
+function draftsDir() {
+  if (app.isPackaged) {
+    return path.join(app.getPath("userData"), "drafts");
+  }
+  return path.join(process.cwd(), "drafts");
+}
+
+async function ensureDraftsDir() {
+  await fsp.mkdir(draftsDir(), { recursive: true });
+}
+
+function safeDraftFilePath(id: string) {
+  const base = path.basename(id);
+  if (!base || base !== id) return null;
+  return path.join(draftsDir(), base);
+}
+
+async function readStoredDraft(filePath: string): Promise<StoredDraftFile | null> {
+  try {
+    const raw = await fsp.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as StoredDraftFile;
+    if (!parsed?.name || !parsed?.state) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 // -------------------- Ventana --------------------
 function createWindow() {
   const win = new BrowserWindow({
     width: 1300,
     height: 900,
-    title: '',
+    title: buildWindowTitle("Manuales automatizados"),
     webPreferences: {
       preload: getPreloadPath(),
       nodeIntegration: false,
@@ -152,6 +206,17 @@ function createWindow() {
       );
     }
   }
+}
+
+function registerAppIpcHandlers() {
+  ipcMain.removeHandler("app:set-title");
+
+  ipcMain.handle("app:set-title", (event, section?: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return false;
+    win.setTitle(buildWindowTitle(section));
+    return true;
+  });
 }
 
 // -------------------- Descubrimiento & Scan de repos (AUTOMÁTICO) --------------------
@@ -677,6 +742,126 @@ function registerTemplateIpcHandlers() {
   });
 }
 
+function registerDraftIpcHandlers() {
+  ipcMain.removeHandler("draft:list");
+  ipcMain.removeHandler("draft:save");
+  ipcMain.removeHandler("draft:read");
+  ipcMain.removeHandler("draft:delete");
+
+  ipcMain.handle("draft:list", async () => {
+    await ensureDraftsDir();
+    const dir = draftsDir();
+    const files = (await fsp.readdir(dir)).filter((f) => f.endsWith(".fdd"));
+
+    const list = await Promise.all(
+      files.map(async (fileName) => {
+        const filePath = path.join(dir, fileName);
+        const st = await fsp.stat(filePath);
+        const stored = await readStoredDraft(filePath);
+        return {
+          id: fileName,
+          fileName,
+          filePath,
+          name: stored?.name ?? fileName.replace(/\.fdd$/i, ""),
+          createdAt: stored?.createdAt ?? st.birthtime.toISOString(),
+          updatedAt: stored?.updatedAt ?? st.mtime.toISOString(),
+          size: st.size,
+          activeStep:
+            typeof stored?.state?.activeStep === "number"
+              ? stored.state.activeStep
+              : 0,
+        };
+      }),
+    );
+
+    list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return list;
+  });
+
+  ipcMain.handle(
+    "draft:save",
+    async (
+      _evt,
+      payload:
+        | {
+            id?: string;
+            name?: string;
+            state?: StoredDraftFile["state"];
+          }
+        | undefined,
+    ) => {
+      await ensureDraftsDir();
+
+      const now = new Date().toISOString();
+      const requestedId = payload?.id ? path.basename(payload.id) : "";
+      const id = requestedId || buildDraftId();
+      const filePath = safeDraftFilePath(id);
+      if (!filePath) return null;
+
+      let createdAt = now;
+      if (existsSync(filePath)) {
+        const prev = await readStoredDraft(filePath);
+        if (prev?.createdAt) createdAt = prev.createdAt;
+      }
+
+      const name = (payload?.name ?? "").trim() || "Sin título";
+      const state = payload?.state;
+      if (!state) return null;
+
+      const dataToSave: StoredDraftFile = {
+        version: 1,
+        name,
+        createdAt,
+        updatedAt: now,
+        state,
+      };
+
+      await fsp.writeFile(filePath, JSON.stringify(dataToSave, null, 2), "utf8");
+
+      return {
+        id,
+        fileName: id,
+        filePath,
+        name: dataToSave.name,
+        createdAt: dataToSave.createdAt,
+        updatedAt: dataToSave.updatedAt,
+      };
+    },
+  );
+
+  ipcMain.handle("draft:read", async (_evt, id: string) => {
+    if (!id) return null;
+    await ensureDraftsDir();
+
+    const filePath = safeDraftFilePath(id);
+    if (!filePath || !existsSync(filePath)) return null;
+
+    const stored = await readStoredDraft(filePath);
+    if (!stored) return null;
+
+    return {
+      id,
+      fileName: id,
+      filePath,
+      name: stored.name,
+      createdAt: stored.createdAt,
+      updatedAt: stored.updatedAt,
+      state: stored.state,
+    };
+  });
+
+  ipcMain.handle("draft:delete", async (_evt, id: string) => {
+    if (!id) return false;
+    await ensureDraftsDir();
+
+    const filePath = safeDraftFilePath(id);
+    if (!filePath || !existsSync(filePath)) return false;
+
+    await fsp.unlink(filePath);
+    return true;
+  });
+}
+
 // -------------------- App lifecycle --------------------
 // Registra handlers en carga de módulo para que estén disponibles
 // incluso antes de crear la ventana (evita carreras en dev/hot reload).
@@ -684,6 +869,8 @@ registerDocxIpcHandlers();
 registerPickReposHandler();
 registerGitIpcHandlers();
 registerTemplateIpcHandlers();
+registerAppIpcHandlers();
+registerDraftIpcHandlers();
 
 app.whenReady().then(() => {
   if (process.platform === "win32") {

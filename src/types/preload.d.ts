@@ -2,6 +2,7 @@ export {};
 declare global {
   interface Window {
     ipc: {
+      setWindowTitle: (section?: string) => Promise<boolean>;
       selectDocx: () => Promise<{ filePath: string; bytes: Uint8Array } | null>;
       pickRepos: () => Promise<{ repoName: string; repoPath: string }[]>;
       listChanges: (
@@ -58,6 +59,57 @@ declare global {
           }
         | null
       >;
+      draftList: () => Promise<
+        Array<{
+          id: string;
+          fileName: string;
+          filePath: string;
+          name: string;
+          createdAt: string;
+          updatedAt: string;
+          size?: number;
+          activeStep?: number;
+        }>
+      >;
+      draftSave: (payload: {
+        id?: string;
+        name?: string;
+        state: {
+          manualTitle: string;
+          activeStep: number;
+          data: unknown;
+          sections: unknown;
+          detailedPieces: unknown;
+          templateBytesBase64: string | null;
+        };
+      }) => Promise<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        name: string;
+        createdAt: string;
+        updatedAt: string;
+      } | null>;
+      draftRead: (id: string) => Promise<
+        | {
+            id: string;
+            fileName: string;
+            filePath: string;
+            name: string;
+            createdAt: string;
+            updatedAt: string;
+            state: {
+              manualTitle: string;
+              activeStep: number;
+              data: unknown;
+              sections: unknown;
+              detailedPieces: unknown;
+              templateBytesBase64: string | null;
+            };
+          }
+        | null
+      >;
+      draftDelete: (id: string) => Promise<boolean>;
     };
   }
 }

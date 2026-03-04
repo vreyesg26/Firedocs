@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import {
+  ActionIcon,
   Badge,
   Card,
   Center,
@@ -14,10 +16,27 @@ import { mainButtonsData } from "@/lib/constants";
 import { useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
+import { IconCircleArrowRightFilled } from "@tabler/icons-react";
 
 export default function HomePage() {
   const navigate = useNavigate();
   const { handleOpen } = useManual();
+  const [hasDrafts, setHasDrafts] = useState(false);
+
+  useEffect(() => {
+    void window.ipc.setWindowTitle("Manuales automatizados");
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const drafts = await window.ipc.draftList();
+      if (mounted) setHasDrafts(drafts.length > 0);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const onImportClick = async () => {
     const ok = await handleOpen();
@@ -32,12 +51,10 @@ export default function HomePage() {
       className={classes.card}
       padding="xl"
       onClick={
-        feature.key === "import"
-          ? onImportClick
-          : () => navigate("/templates")
+        feature.key === "import" ? onImportClick : () => navigate("/templates")
       }
     >
-      <feature.icon size={50} stroke={1.5} color={mainColor} />
+      <feature.icon size={50} stroke={1.5} />
       <Text fz="lg" fw={500} className={classes.cardTitle} mt="md">
         {feature.title}
       </Text>
@@ -73,10 +90,29 @@ export default function HomePage() {
         >
           {features}
         </SimpleGrid>
+        {hasDrafts && (
+          <Group justify="center" gap="xs" mt="sm">
+            <Card
+              shadow="md"
+              radius="md"
+              className={classes.card}
+              onClick={() => navigate("/drafts")}
+            >
+              <Flex align="center" gap={4}>
+                <Text>Continuar a partir de un borrador</Text>
+                <ActionIcon variant="transparent" color="white">
+                  <IconCircleArrowRightFilled size="1.2rem" stroke={1.5} />
+                </ActionIcon>
+              </Flex>
+            </Card>
+          </Group>
+        )}
         <Group justify="center" gap="xs" mt="lg">
-          <Flex align='center' gap={4}>
+          <Flex align="center" gap={4}>
             <Text>Desarrollado por</Text>
-            <Text fw={700} c={mainColor}>Victor Reyes</Text>
+            <Text fw={700} c={mainColor}>
+              Victor Reyes
+            </Text>
           </Flex>
         </Group>
       </Container>

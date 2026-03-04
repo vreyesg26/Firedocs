@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from "electron";
 
 // Exponemos TODO bajo window.ipc (unificado)
 contextBridge.exposeInMainWorld("ipc", {
+  setWindowTitle: (section?: string) => ipcRenderer.invoke("app:set-title", section),
+
   // DOCX (lo que ya tenías)
   selectDocx: () => ipcRenderer.invoke("select-docx"),
   saveDocx: (bytes: Uint8Array, defaultName?: string) =>
@@ -41,4 +43,21 @@ contextBridge.exposeInMainWorld("ipc", {
   templateList: () => ipcRenderer.invoke("template:list"),
   templateImportDocx: () => ipcRenderer.invoke("template:import-docx"),
   templateRead: (id: string) => ipcRenderer.invoke("template:read", id),
+
+  // --- Borradores ---
+  draftList: () => ipcRenderer.invoke("draft:list"),
+  draftSave: (payload: {
+    id?: string;
+    name?: string;
+    state: {
+      manualTitle: string;
+      activeStep: number;
+      data: unknown;
+      sections: unknown;
+      detailedPieces: unknown;
+      templateBytesBase64: string | null;
+    };
+  }) => ipcRenderer.invoke("draft:save", payload),
+  draftRead: (id: string) => ipcRenderer.invoke("draft:read", id),
+  draftDelete: (id: string) => ipcRenderer.invoke("draft:delete", id),
 });

@@ -21,6 +21,8 @@ declare global {
 
     // Unificamos el puente aquí (coincide con preload.ts)
     ipc: {
+      setWindowTitle(section?: string): Promise<boolean>;
+
       // DOCX
       selectDocx(): Promise<any>;
       saveDocx(bytes: Uint8Array, defaultName?: string): Promise<void>;
@@ -81,6 +83,57 @@ declare global {
           }
         | null
       >;
+      draftList(): Promise<
+        Array<{
+          id: string;
+          fileName: string;
+          filePath: string;
+          name: string;
+          createdAt: string;
+          updatedAt: string;
+          size?: number;
+          activeStep?: number;
+        }>
+      >;
+      draftSave(payload: {
+        id?: string;
+        name?: string;
+        state: {
+          manualTitle: string;
+          activeStep: number;
+          data: unknown;
+          sections: unknown;
+          detailedPieces: unknown;
+          templateBytesBase64: string | null;
+        };
+      }): Promise<{
+        id: string;
+        fileName: string;
+        filePath: string;
+        name: string;
+        createdAt: string;
+        updatedAt: string;
+      } | null>;
+      draftRead(id: string): Promise<
+        | {
+            id: string;
+            fileName: string;
+            filePath: string;
+            name: string;
+            createdAt: string;
+            updatedAt: string;
+            state: {
+              manualTitle: string;
+              activeStep: number;
+              data: unknown;
+              sections: unknown;
+              detailedPieces: unknown;
+              templateBytesBase64: string | null;
+            };
+          }
+        | null
+      >;
+      draftDelete(id: string): Promise<boolean>;
     };
 
     // ⛔️ Eliminamos window.git para evitar confusión.

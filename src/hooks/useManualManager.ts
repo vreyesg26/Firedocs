@@ -17,15 +17,30 @@ function b64ToUint8(b64: string): Uint8Array {
   return out;
 }
 
-function anyToUint8(input: any): Uint8Array | null {
+function uint8ToB64(bytes: Uint8Array) {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+  return btoa(out);
+}
+
+function titleFromFilePath(filePath: string) {
+  const name = filePath.split(/[\\/]/).pop() || filePath;
+  return name.replace(/\.[^.]+$/, "").trim() || "Sin título";
+}
+
+function anyToUint8(input: unknown): Uint8Array | null {
   if (!input) return null;
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   if (ArrayBuffer.isView(input))
     return new Uint8Array((input as ArrayBufferView).buffer);
 
-  if (input?.type === "Buffer" && Array.isArray(input.data))
-    return Uint8Array.from(input.data);
+  const obj = input as
+    | { type?: string; data?: unknown; length?: unknown; [key: string]: unknown }
+    | undefined;
+
+  if (obj?.type === "Buffer" && Array.isArray(obj.data))
+    return Uint8Array.from(obj.data as number[]);
 
   if (typeof input === "object") {
     const keys = Object.keys(input);
@@ -50,6 +65,9 @@ export function useManualManager() {
   const [data, setData] = useState<ManualExtract | null>(null);
   const [sections, setSections] = useState<UISection[] | null>(null);
   const [templateBytes, setTemplateBytes] = useState<Uint8Array | null>(null);
+  const [manualTitle, setManualTitle] = useState("Sin título");
+  const [activeStep, setActiveStep] = useState(0);
+  const [draftId, setDraftId] = useState<string | null>(null);
 
   const [gitModalOpen, setGitModalOpen] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
@@ -115,7 +133,7 @@ export function useManualManager() {
             label: f0.label,
             kind: "multiselect",
             options: [...countryOptions],
-            value: toCountryCodes(f0.value as any),
+            value: toCountryCodes(f0.value),
           };
 
         if (key === "otros" || key === "otros:") {
@@ -166,6 +184,9 @@ export function useManualManager() {
     setData(parsed);
     setSections(norm);
     setDetailedPieces(parsed.piezasDetalladas ?? []);
+    setManualTitle("Sin título");
+    setActiveStep(0);
+    setDraftId(null);
     return true;
   }
 
@@ -173,18 +194,22 @@ export function useManualManager() {
     try {
       const res = await window.ipc.selectDocx();
       if (!res) return;
+      const rawRes = res as Record<string, unknown>;
 
       const bytes =
-        anyToUint8((res as any).bytes) ??
-        anyToUint8((res as any).buffer) ??
-        anyToUint8((res as any).base64);
+        anyToUint8(rawRes.bytes) ??
+        anyToUint8(rawRes.buffer) ??
+        anyToUint8(rawRes.base64);
 
       if (!bytes) throw new Error("No se recibió un buffer válido del IPC");
       await loadFromTemplateBytes(bytes);
+      if (typeof rawRes.filePath === "string" && rawRes.filePath.trim()) {
+        setManualTitle(titleFromFilePath(rawRes.filePath));
+      }
 
       return true;
-    } catch (e: any) {
-      alert(e.message ?? String(e));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
       return false;
     }
   }
@@ -198,17 +223,77 @@ export function useManualManager() {
     await window.ipc.saveDocx(out, "Manual-actualizado.docx");
   }
 
+  async function listDrafts() {
+    const list = await window.ipc.draftList();
+    return list ?? [];
+  }
+
+  async function saveCurrentDraft() {
+    const payload = {
+      id: draftId ?? undefined,
+      name: manualTitle.trim() || "Sin título",
+      state: {
+        manualTitle: manualTitle.trim() || "Sin título",
+        activeStep,
+        data,
+        sections,
+        detailedPieces,
+        templateBytesBase64: templateBytes ? uint8ToB64(templateBytes) : null,
+      },
+    };
+
+    const saved = await window.ipc.draftSave(payload);
+    if (saved?.id) {
+      setDraftId(saved.id);
+    }
+    return saved;
+  }
+
+  async function loadDraftById(id: string) {
+    const draft = await window.ipc.draftRead(id);
+    if (!draft?.state) return false;
+
+    const state = draft.state;
+    setData((state.data as ManualExtract | null) ?? null);
+    setSections((state.sections as UISection[] | null) ?? null);
+    setDetailedPieces((state.detailedPieces as PiezasGrupo[]) ?? []);
+    setTemplateBytes(
+      state.templateBytesBase64 ? b64ToUint8(state.templateBytesBase64) : null,
+    );
+    setManualTitle((state.manualTitle || "Sin título").trim() || "Sin título");
+    setActiveStep(
+      Number.isFinite(state.activeStep)
+        ? Math.max(0, Number(state.activeStep))
+        : 0,
+    );
+    setDraftId(draft.id);
+    return true;
+  }
+
+  async function deleteDraftById(id: string) {
+    const ok = await window.ipc.draftDelete(id);
+    if (ok && draftId === id) {
+      setDraftId(null);
+    }
+    return ok;
+  }
+
   return {
     data,
     sections,
     detailedPieces,
     templateBytes,
+    manualTitle,
+    activeStep,
+    draftId,
     gitModalOpen,
     gitLoading,
     gitData,
 
     setSections,
     setDetailedPieces,
+    setManualTitle,
+    setActiveStep,
     setGitData,
     setGitModalOpen,
     setGitLoading,
@@ -216,5 +301,9 @@ export function useManualManager() {
     handleOpen,
     loadFromTemplateBytes,
     handleExport,
+    listDrafts,
+    saveCurrentDraft,
+    loadDraftById,
+    deleteDraftById,
   };
 }
