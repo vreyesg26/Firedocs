@@ -1,4 +1,4 @@
-name: Build FireDocs (Windows)
+name: Build Firedocs (Windows)
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
       - name: Upload artifacts (Windows)
         uses: actions/upload-artifact@v4
         with:
-          name: FireDocs-windows
+          name: Firedocs-windows
           path: |
             dist/*.exe
             dist/*.msi

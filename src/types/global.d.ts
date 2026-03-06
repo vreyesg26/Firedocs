@@ -87,6 +87,20 @@ declare global {
           }
         | null
       >;
+      templatePreviewPdf(id: string): Promise<
+        | {
+            id: string;
+            bytes: Uint8Array;
+            mimeType: string;
+            fromCache: boolean;
+          }
+        | {
+            id: string;
+            error: string;
+          }
+        | null
+      >;
+      templateDelete(id: string): Promise<boolean>;
       draftList(): Promise<
         Array<{
           id: string;
@@ -109,6 +123,7 @@ declare global {
           sections: unknown;
           detailedPieces: unknown;
           detailedFixPieces?: unknown;
+          backupTables?: unknown;
           templateBytesBase64: string | null;
         };
       }): Promise<{
@@ -134,6 +149,7 @@ declare global {
               sections: unknown;
               detailedPieces: unknown;
               detailedFixPieces?: unknown;
+              backupTables?: unknown;
               templateBytesBase64: string | null;
             };
           }

@@ -1,10 +1,5 @@
-import { Divider, Title } from "@mantine/core";
+import { BackupTablesStep } from "./BackupTablesStep";
 
 export const SeventhStep = () => {
-  return (
-    <>
-      <Title order={2}>Respaldo de objetos</Title>
-      <Divider my="xs" />
-    </>
-  );
+  return <BackupTablesStep />;
 };

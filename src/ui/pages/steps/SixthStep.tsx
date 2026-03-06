@@ -1,81 +1,140 @@
-import { mainColor } from "@/lib/utils";
-import { Divider, Table, Title } from "@mantine/core";
+import { Divider, Paper, Text, Title } from "@mantine/core";
+import { RichTextEditor, Link } from "@mantine/tiptap";
+import { useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Highlight from "@tiptap/extension-highlight";
+import SubScript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
+import Underline from "@tiptap/extension-underline";
+import TextAlign from "@tiptap/extension-text-align";
+import { useEffect } from "react";
+import { useManual } from "@/context/ManualContext";
+
+const richTextEditorLabels = {
+  boldControlLabel: "Negrita",
+  italicControlLabel: "Cursiva",
+  underlineControlLabel: "Subrayado",
+  strikeControlLabel: "Tachado",
+  clearFormattingControlLabel: "Limpiar formato",
+  highlightControlLabel: "Resaltar",
+  sourceCodeControlLabel: "Código fuente",
+  linkControlLabel: "Insertar enlace",
+  unlinkControlLabel: "Quitar enlace",
+  bulletListControlLabel: "Lista con viñetas",
+  orderedListControlLabel: "Lista numerada",
+  h1ControlLabel: "Título 1",
+  h2ControlLabel: "Título 2",
+  h3ControlLabel: "Título 3",
+  h4ControlLabel: "Título 4",
+  blockquoteControlLabel: "Cita",
+  alignLeftControlLabel: "Alinear a la izquierda",
+  alignCenterControlLabel: "Centrar",
+  alignRightControlLabel: "Alinear a la derecha",
+  alignJustifyControlLabel: "Justificar",
+  subscriptControlLabel: "Subíndice",
+  superscriptControlLabel: "Superíndice",
+  undoControlLabel: "Deshacer",
+  redoControlLabel: "Rehacer",
+  linkEditorInputLabel: "URL del enlace",
+  linkEditorInputPlaceholder: "https://ejemplo.com/",
+  linkEditorExternalLink: "Abrir enlace en una nueva pestaña",
+  linkEditorInternalLink: "Abrir enlace en la misma pestaña",
+  linkEditorSave: "Guardar",
+} satisfies Partial<Parameters<typeof RichTextEditor>[0]["labels"]>;
 
 export const SixthStep = () => {
-  const HEADER_BG = mainColor;
-  const rows = [
-    { paso: "1", objeto: "Respaldar carpeta X" },
-    { paso: "2", objeto: "Exportar base Y" },
-    { paso: "3", objeto: "Guardar en ruta Z" },
-  ];
-  const thStyle: React.CSSProperties = {
-    background: HEADER_BG,
-    color: "white",
-    textAlign: "center",
-    fontWeight: 700,
+  const { previousStepsHtml, setPreviousStepsHtml } = useManual() as {
+    previousStepsHtml?: string;
+    setPreviousStepsHtml: (value: string) => void;
   };
-  const tdEmpty: React.CSSProperties = { height: 56 }; // para “celdas vacías” como en tu diseño
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Highlight,
+      SubScript,
+      Superscript,
+      Underline,
+      Link,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+    ],
+    content: previousStepsHtml?.trim(),
+    onUpdate: ({ editor: currentEditor }) => {
+      setPreviousStepsHtml(currentEditor.getHTML());
+    },
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    const currentHtml = editor.getHTML();
+    const nextHtml = previousStepsHtml?.trim() || "<p><br></p>";
+    if (currentHtml !== nextHtml) {
+      editor.commands.setContent(nextHtml, { emitUpdate: false });
+    }
+  }, [editor, previousStepsHtml]);
 
   return (
     <>
-      <Title order={2}>Repositorios y matriz de comunicación</Title>
+      <Title order={2}>Pasos previos a la instalación</Title>
       <Divider my="xs" />
-      <Table
-        withTableBorder
-        withColumnBorders
-        verticalSpacing="md"
-        horizontalSpacing="md"
-      >
-        <Table.Thead>
-          {/* Encabezado 1: 3 columnas */}
-          <Table.Tr>
-            <Table.Th style={thStyle}>Equipo encargado de respaldo:</Table.Th>
-            <Table.Th style={thStyle}>
-              Base de datos/Directorio (SQR-SQT)
-            </Table.Th>
-            <Table.Th style={thStyle}>Aplicativo:</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
+      <Paper withBorder radius="md" p="md">
+        <Text size="sm" c="dimmed" mb="sm">
+          Define aqui las actividades previas con el formato que necesites.
+        </Text>
+        <RichTextEditor
+          editor={editor}
+          mih={480}
+          labels={richTextEditorLabels}
+        >
+          <RichTextEditor.Toolbar sticky stickyOffset={60}>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Bold />
+              <RichTextEditor.Italic />
+              <RichTextEditor.Underline />
+              <RichTextEditor.Strikethrough />
+              <RichTextEditor.ClearFormatting />
+              <RichTextEditor.Highlight />
+              <RichTextEditor.SourceCode />
+            </RichTextEditor.ControlsGroup>
 
-        <Table.Tbody>
-          {/* Fila de datos del encabezado 1 (vacía / para llenar) */}
-          <Table.Tr>
-            <Table.Td style={tdEmpty} />
-            <Table.Td style={tdEmpty} />
-            <Table.Td style={tdEmpty} />
-          </Table.Tr>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.H1 />
+              <RichTextEditor.H2 />
+              <RichTextEditor.H3 />
+              <RichTextEditor.H4 />
+            </RichTextEditor.ControlsGroup>
 
-          {/* Encabezado 2: 2 columnas VISUALES (pero en grid de 3) */}
-          <Table.Tr>
-            <Table.Td style={thStyle}>Paso</Table.Td>
-            <Table.Td style={thStyle} colSpan={2}>
-              Objeto a respaldar
-            </Table.Td>
-          </Table.Tr>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Blockquote />
+              <RichTextEditor.Hr />
+              <RichTextEditor.BulletList />
+              <RichTextEditor.OrderedList />
+              <RichTextEditor.Subscript />
+              <RichTextEditor.Superscript />
+            </RichTextEditor.ControlsGroup>
 
-          {/* Filas de datos del encabezado 2 */}
-          {rows.map((r) => (
-            <Table.Tr key={r.paso}>
-              <Table.Td style={{ width: 180 }}>{r.paso}</Table.Td>
-              <Table.Td colSpan={2}>{r.objeto}</Table.Td>
-            </Table.Tr>
-          ))}
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Link />
+              <RichTextEditor.Unlink />
+            </RichTextEditor.ControlsGroup>
 
-          {/* Encabezado 3: 2 columnas VISUALES */}
-          <Table.Tr>
-            <Table.Td style={thStyle}>Servidor (Nombre, IP)</Table.Td>
-            <Table.Td style={thStyle} colSpan={2}>
-              Comentarios adicionales
-            </Table.Td>
-          </Table.Tr>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.AlignLeft />
+              <RichTextEditor.AlignCenter />
+              <RichTextEditor.AlignJustify />
+              <RichTextEditor.AlignRight />
+            </RichTextEditor.ControlsGroup>
 
-          {/* Fila de datos del encabezado 3 (1 registro) */}
-          <Table.Tr>
-            <Table.Td style={tdEmpty} />
-            <Table.Td style={tdEmpty} colSpan={2} />
-          </Table.Tr>
-        </Table.Tbody>
-      </Table>
+            <RichTextEditor.ControlsGroup>
+              <RichTextEditor.Undo />
+              <RichTextEditor.Redo />
+            </RichTextEditor.ControlsGroup>
+          </RichTextEditor.Toolbar>
+
+          <RichTextEditor.Content />
+        </RichTextEditor>
+      </Paper>
     </>
   );
 };

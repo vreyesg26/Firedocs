@@ -6,7 +6,11 @@ import {
   evaluateXPathToNodes,
   evaluateXPathToNumber,
 } from "fontoxpath";
-import type { PiezasGrupo, UISection } from "@/types/manual";
+import type {
+  CommunicationMatrixRow,
+  PiezasGrupo,
+  UISection,
+} from "@/types/manual";
 
 /* ============================== Namespaces ============================== */
 
@@ -94,6 +98,30 @@ function setCellTextKeepParagraph(
   } catch {}
 }
 
+function setParagraphTextKeepStyle(p: Node | null, text: string, doc: Document) {
+  if (!p) return;
+
+  let r = xpNode("./w:r[1]", p);
+  if (!r) r = (p as Element).appendChild(doc.createElementNS(W_NS, "w:r"));
+
+  let t = xpNode("./w:t[1]", r);
+  if (!t) t = (r as Element).appendChild(doc.createElementNS(W_NS, "w:t"));
+
+  for (const extraText of xpNodes(".//w:t[position()>1]", p)) {
+    (extraText as Element).textContent = "";
+  }
+
+  (t as Element).textContent = text;
+  try {
+    (t as Element).setAttribute("xml:space", "preserve");
+  } catch {}
+}
+
+const PREVIOUS_STEPS_TITLE =
+  "Requisitos y Trabajos que deben estar completados previo a la implementación del cambio";
+const PREVIOUS_STEPS_PLACEHOLDER =
+  "[Describa aquí las consideraciones y actividades que ya deben estar gestionadas y realizadas por los equipos correspondientes previo a la instalación del cambio]";
+
 function normalizeKey(s: string) {
   return (s || "")
     .toLowerCase()
@@ -101,6 +129,224 @@ function normalizeKey(s: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function hasMeaningfulHtml(html: string | undefined) {
+  const normalized = (html ?? "")
+    .replace(/<p><br><\/p>/gi, "")
+    .replace(/<p>\s*<\/p>/gi, "")
+    .replace(/&nbsp;/gi, " ")
+    .trim();
+  return normalized.length > 0;
+}
+
+function resetParagraphContentKeepStyle(p: Node, doc: Document) {
+  const children = Array.from(p.childNodes);
+  for (const child of children) {
+    if (
+      child.nodeType === 1 &&
+      (child as Element).localName === "pPr"
+    ) {
+      continue;
+    }
+    p.removeChild(child);
+  }
+
+  if (!xpNode("./w:r[1]", p)) {
+    p.appendChild(doc.createElementNS(W_NS, "w:r"));
+  }
+}
+
+function createRun(
+  doc: Document,
+  text: string,
+  formatting?: {
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strike?: boolean;
+    subscript?: boolean;
+    superscript?: boolean;
+    highlight?: boolean;
+  },
+) {
+  const run = doc.createElementNS(W_NS, "w:r");
+  const rPr = doc.createElementNS(W_NS, "w:rPr");
+
+  if (formatting?.bold) rPr.appendChild(doc.createElementNS(W_NS, "w:b"));
+  if (formatting?.italic) rPr.appendChild(doc.createElementNS(W_NS, "w:i"));
+  if (formatting?.underline) {
+    const underline = doc.createElementNS(W_NS, "w:u");
+    underline.setAttributeNS(W_NS, "w:val", "single");
+    rPr.appendChild(underline);
+  }
+  if (formatting?.strike) rPr.appendChild(doc.createElementNS(W_NS, "w:strike"));
+  if (formatting?.subscript || formatting?.superscript) {
+    const vertAlign = doc.createElementNS(W_NS, "w:vertAlign");
+    vertAlign.setAttributeNS(
+      W_NS,
+      "w:val",
+      formatting.subscript ? "subscript" : "superscript",
+    );
+    rPr.appendChild(vertAlign);
+  }
+  if (formatting?.highlight) {
+    const highlight = doc.createElementNS(W_NS, "w:highlight");
+    highlight.setAttributeNS(W_NS, "w:val", "yellow");
+    rPr.appendChild(highlight);
+  }
+
+  if (rPr.childNodes.length > 0) {
+    run.appendChild(rPr);
+  }
+
+  const textNode = doc.createElementNS(W_NS, "w:t");
+  textNode.textContent = text;
+  try {
+    textNode.setAttribute("xml:space", "preserve");
+  } catch {}
+  run.appendChild(textNode);
+  return run;
+}
+
+type RichTextSegment = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  subscript?: boolean;
+  superscript?: boolean;
+  highlight?: boolean;
+};
+
+type RichTextBlock = {
+  textPrefix?: string;
+  segments: RichTextSegment[];
+};
+
+function parseRichTextHtmlToBlocks(html: string): RichTextBlock[] {
+  const safeHtml = `<root>${(html || "")
+    .replace(/<hr>/gi, "<hr />")
+    .replace(/<br>/gi, "<br />")}</root>`;
+  const parsed = new DOMParser().parseFromString(safeHtml, "application/xml");
+  const root = parsed.documentElement;
+
+  function collectInlineSegments(
+    node: Node,
+    formatting: Omit<RichTextSegment, "text"> = {},
+  ): RichTextSegment[] {
+    if (node.nodeType === 3) {
+      const text = node.nodeValue ?? "";
+      return text ? [{ text, ...formatting }] : [];
+    }
+
+    if (node.nodeType !== 1) return [];
+
+    const element = node as Element;
+    const tag = element.tagName.toLowerCase();
+    const nextFormatting = { ...formatting };
+
+    if (["strong", "b"].includes(tag)) nextFormatting.bold = true;
+    if (["em", "i"].includes(tag)) nextFormatting.italic = true;
+    if (tag === "u") nextFormatting.underline = true;
+    if (["s", "strike"].includes(tag)) nextFormatting.strike = true;
+    if (tag === "sub") nextFormatting.subscript = true;
+    if (tag === "sup") nextFormatting.superscript = true;
+    if (tag === "mark") nextFormatting.highlight = true;
+
+    if (tag === "br") return [{ text: "\n", ...nextFormatting }];
+
+    const segments: RichTextSegment[] = [];
+    for (const child of Array.from(element.childNodes)) {
+      segments.push(...collectInlineSegments(child, nextFormatting));
+    }
+    return segments;
+  }
+
+  function blockFromNode(node: Node, orderedIndex = 0): RichTextBlock[] {
+    if (node.nodeType !== 1) return [];
+
+    const element = node as Element;
+    const tag = element.tagName.toLowerCase();
+
+    if (["p", "h1", "h2", "h3", "h4", "blockquote"].includes(tag)) {
+      const segments = collectInlineSegments(element);
+      if (["h1", "h2", "h3", "h4"].includes(tag)) {
+        segments.forEach((segment) => {
+          segment.bold = true;
+        });
+      }
+      return segments.length ? [{ segments }] : [];
+    }
+
+    if (tag === "ul" || tag === "ol") {
+      const items = Array.from(element.childNodes).filter(
+        (child) => child.nodeType === 1 && (child as Element).tagName.toLowerCase() === "li",
+      );
+      return items.map((item, index) => ({
+        textPrefix: tag === "ul" ? "• " : `${index + 1}. `,
+        segments: collectInlineSegments(item),
+      }));
+    }
+
+    if (tag === "hr") {
+      return [{ segments: [{ text: "────────────────────────" }] }];
+    }
+
+    return Array.from(element.childNodes).flatMap((child) =>
+      blockFromNode(child, orderedIndex),
+    );
+  }
+
+  return Array.from(root.childNodes).flatMap((child, index) =>
+    blockFromNode(child, index),
+  );
+}
+
+function setParagraphFromRichTextBlock(
+  paragraph: Node,
+  block: RichTextBlock,
+  doc: Document,
+) {
+  resetParagraphContentKeepStyle(paragraph, doc);
+  const prefix = block.textPrefix ?? "";
+  const segments =
+    prefix.length > 0
+      ? [{ text: prefix }, ...block.segments]
+      : block.segments;
+
+  const normalizedSegments =
+    segments.length > 0 ? segments : [{ text: "" }];
+
+  for (const segment of normalizedSegments) {
+    const parts = segment.text.split("\n");
+    parts.forEach((part, index) => {
+      if (index > 0) {
+        const runBreak = doc.createElementNS(W_NS, "w:r");
+        runBreak.appendChild(doc.createElementNS(W_NS, "w:br"));
+        paragraph.appendChild(runBreak);
+      }
+      if (!part.length && parts.length > 1) return;
+      paragraph.appendChild(
+        createRun(doc, part, {
+          bold: segment.bold,
+          italic: segment.italic,
+          underline: segment.underline,
+          strike: segment.strike,
+          subscript: segment.subscript,
+          superscript: segment.superscript,
+          highlight: segment.highlight,
+        }),
+      );
+    });
+  }
+}
+
+function repositoryCellText(row: CommunicationMatrixRow): string {
+  const raw = (row.repositoriesInput ?? "").trim();
+  if (raw) return raw;
+  return (row.repositories ?? []).join(", ");
 }
 function sameKey(a: string, b: string) {
   return normalizeKey(a) === normalizeKey(b);
@@ -134,6 +380,14 @@ function findTableByRowLabel(root: Document, needle: string): Node | null {
       const txt = getTextDeep(tr);
       if (txt.includes(needle)) return tbl;
     }
+  }
+  return null;
+}
+
+function findParagraphByText(root: Document, containsText: string): Node | null {
+  const paragraphs = xpNodes("//w:p", root);
+  for (const paragraph of paragraphs) {
+    if (getTextDeep(paragraph).includes(containsText)) return paragraph;
   }
   return null;
 }
@@ -654,6 +908,190 @@ function ensureDataRowsCount(
   return dataRows;
 }
 
+function findCommunicationMatrixTable(root: Document): Node | null {
+  const tables = xpNodes("//w:tbl", root);
+  for (const table of tables) {
+    const rows = xpNodes("./w:tr", table);
+    const headerRow = rows[0] ?? null;
+    if (!headerRow) continue;
+    const headerText = normalizeKey(getTextDeep(headerRow));
+    if (
+      headerText.includes("pais") &&
+      headerText.includes("desarrollador") &&
+      headerText.includes("aplicacion") &&
+      headerText.includes("jefe")
+    ) {
+      return table;
+    }
+  }
+  return null;
+}
+
+function mapCommunicationMatrixColumns(headerRow: Node) {
+  const cells = xpNodes("./w:tc", headerRow);
+  let country = -1;
+  let developerName = -1;
+  let developerContact = -1;
+  let application = -1;
+  let bossName = -1;
+  let bossContact = -1;
+
+  for (let i = 0; i < cells.length; i += 1) {
+    const text = normalizeKey(getTextDeep(cells[i]));
+    if (text === "pais") country = i;
+    else if (text.includes("desarrollador")) developerName = i;
+    else if (text.includes("aplicacion")) application = i;
+    else if (text.includes("jefe")) bossName = i;
+    else if (text.includes("numero de contacto")) {
+      if (developerContact === -1) developerContact = i;
+      else bossContact = i;
+    }
+  }
+
+  return { country, developerName, developerContact, application, bossName, bossContact };
+}
+
+function fillRepositoryNames(
+  doc: Document,
+  root: Document,
+  repositoryNames: string[],
+) {
+  if (!repositoryNames.length) return;
+
+  const placeholder = findParagraphByText(
+    root,
+    "[Nombre del repositorio de acuerdo a la Herramienta de Control de Versiones.]",
+  );
+  if (!placeholder?.parentNode) return;
+
+  const parent = placeholder.parentNode;
+  const nextSibling = placeholder.nextSibling;
+  const templateParagraph = placeholder.cloneNode(true);
+
+  setParagraphTextKeepStyle(placeholder, repositoryNames[0] ?? "", doc);
+
+  for (let i = 1; i < repositoryNames.length; i += 1) {
+    const clone = templateParagraph.cloneNode(true);
+    setParagraphTextKeepStyle(clone, repositoryNames[i], doc);
+    parent.insertBefore(clone, nextSibling);
+  }
+}
+
+function fillCommunicationMatrix(
+  doc: Document,
+  root: Document,
+  communicationMatrix: CommunicationMatrixRow[],
+) {
+  if (!communicationMatrix.length) return;
+
+  const table = findCommunicationMatrixTable(root);
+  if (!table) return;
+
+  const rows = xpNodes("./w:tr", table);
+  const headerRow = rows[0] ?? null;
+  if (!headerRow) return;
+
+  const cols = mapCommunicationMatrixColumns(headerRow);
+  if (
+    cols.country === -1 ||
+    cols.developerName === -1 ||
+    cols.developerContact === -1 ||
+    cols.application === -1 ||
+    cols.bossName === -1 ||
+    cols.bossContact === -1
+  ) {
+    return;
+  }
+
+  const dataRows = ensureDataRowsCount(table, 0, communicationMatrix.length);
+  for (let i = 0; i < dataRows.length; i += 1) {
+    const row = communicationMatrix[i] ?? {
+      country: "",
+      developerName: "",
+      developerContact: "",
+      repositories: [],
+      repositoriesInput: "",
+      pickerRepositories: [],
+      bossName: "",
+      bossContact: "",
+    };
+    const cells = xpNodes("./w:tc", dataRows[i]);
+    setCellTextKeepParagraph(cells[cols.country] ?? null, row.country ?? "", doc);
+    setCellTextKeepParagraph(
+      cells[cols.developerName] ?? null,
+      row.developerName ?? "",
+      doc,
+    );
+    setCellTextKeepParagraph(
+      cells[cols.developerContact] ?? null,
+      row.developerContact ?? "",
+      doc,
+    );
+    setCellTextKeepParagraph(
+      cells[cols.application] ?? null,
+      repositoryCellText(row),
+      doc,
+    );
+    setCellTextKeepParagraph(cells[cols.bossName] ?? null, row.bossName ?? "", doc);
+    setCellTextKeepParagraph(
+      cells[cols.bossContact] ?? null,
+      row.bossContact ?? "",
+      doc,
+    );
+  }
+}
+
+function fillPreviousStepsSection(
+  doc: Document,
+  root: Document,
+  previousStepsHtml: string,
+) {
+  const body = xpNode("/w:document/w:body", root);
+  const startParagraph = findParagraphByText(root, PREVIOUS_STEPS_TITLE);
+  const endParagraph = findParagraphByText(root, "Respaldo de Objetos");
+  if (!body || !startParagraph || !endParagraph || !startParagraph.parentNode) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  let templateParagraph: Node | null = null;
+
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      const element = cursor as Element;
+      if (!templateParagraph && element.localName === "p") {
+        templateParagraph = cursor.cloneNode(true);
+      }
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  const fallbackParagraph =
+    templateParagraph?.cloneNode(true) ?? doc.createElementNS(W_NS, "w:p");
+
+  const blocks = hasMeaningfulHtml(previousStepsHtml)
+    ? parseRichTextHtmlToBlocks(previousStepsHtml)
+    : [];
+
+  const finalBlocks =
+    blocks.length > 0
+      ? blocks
+      : [{ segments: [{ text: PREVIOUS_STEPS_PLACEHOLDER }] }];
+
+  for (const block of finalBlocks) {
+    const paragraph = fallbackParagraph.cloneNode(true);
+    setParagraphFromRichTextBlock(paragraph, block, doc);
+    body.insertBefore(paragraph, endParagraph);
+  }
+}
+
 function hasFixPiecesHeaderText(text: string) {
   const n = normalizeKey(text);
   return (
@@ -938,6 +1376,9 @@ export async function fillInfoGeneral(
   sections: UISection[],
   servicesProducts: string[] = [],
   affectedAreas: string[] = [],
+  repositoryNames: string[] = [],
+  communicationMatrix: CommunicationMatrixRow[] = [],
+  previousStepsHtml = "",
 ): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(template);
   const xml = await zip.file("word/document.xml")?.async("string");
@@ -1024,6 +1465,9 @@ export async function fillInfoGeneral(
   );
 
   fillServicesAndAffectedAreas(doc, doc, servicesProducts, affectedAreas);
+  fillRepositoryNames(doc, doc, repositoryNames);
+  fillCommunicationMatrix(doc, doc, communicationMatrix);
+  fillPreviousStepsSection(doc, doc, previousStepsHtml);
 
   const outXml = new XMLSerializer().serializeToString(doc);
   zip.file("word/document.xml", outXml);
@@ -1037,12 +1481,18 @@ export async function fillManual(
   detailedFixPieces: PiezasGrupo[] = [],
   servicesProducts: string[] = [],
   affectedAreas: string[] = [],
+  repositoryNames: string[] = [],
+  communicationMatrix: CommunicationMatrixRow[] = [],
+  previousStepsHtml = "",
 ): Promise<Uint8Array> {
   const withInfo = await fillInfoGeneral(
     template,
     sections,
     servicesProducts,
     affectedAreas,
+    repositoryNames,
+    communicationMatrix,
+    previousStepsHtml,
   );
   return await fillDetailedPieces(withInfo, piezasDetalladas, detailedFixPieces);
 }

@@ -6,6 +6,7 @@ import type {
   PiezasItem,
   KeyValueField,
   UISection,
+  CommunicationMatrixRow,
 } from "@/types/manual";
 
 type SupportedInput =
@@ -16,6 +17,22 @@ type SupportedInput =
 
 function normalize(s: string) {
   return (s ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeSearch(s: string) {
+  return normalize(s)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function toUint8Array(input: SupportedInput): Uint8Array {
@@ -171,6 +188,198 @@ export async function parseDocxArrayBuffer(
     if (m)
       camposDetectados.push({ key: normalize(m[1]), value: normalize(m[2]) });
   }
+
+  function splitRepositoryValues(value: string): string[] {
+    return Array.from(
+      new Set(
+        normalize(value)
+          .split(",")
+          .map((item) => normalize(item))
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function extractRepositoryNamesFromParagraphs(values: string[]): string[] {
+    const reposStartIndex = values.findIndex((line) =>
+      normalizeSearch(line).includes("nombre de repositorios"),
+    );
+    if (reposStartIndex === -1) return [];
+
+    const stopMatchers = [
+      "matriz de comunicacion del area solicitante",
+      "requisitos y trabajos que deben estar completados",
+      "respaldo de objetos",
+      "pasos requeridos para la instalacion",
+      "pasos requeridos para la implementacion",
+    ];
+
+    const out: string[] = [];
+    for (let i = reposStartIndex + 1; i < values.length; i += 1) {
+      const raw = values[i];
+      const line = normalize(raw);
+      if (!line) continue;
+
+      const normalizedLine = normalizeSearch(line);
+      if (stopMatchers.some((matcher) => normalizedLine.includes(matcher))) {
+        break;
+      }
+
+      if (
+        normalizedLine.includes("informacion de programas para instalar") ||
+        normalizedLine.includes("nombre de repositorios")
+      ) {
+        continue;
+      }
+
+      out.push(line);
+    }
+
+    return Array.from(new Set(out));
+  }
+
+  function findCommunicationMatrixTable(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ): string[][] | null {
+    for (let i = 0; i < ordered.length; i += 1) {
+      const item = ordered[i];
+      if (item.type !== "p") continue;
+
+      const title = normalizeSearch(textFromParagraphPO(item.node));
+      if (!title.includes("matriz de comunicacion del area solicitante")) {
+        continue;
+      }
+
+      for (let j = i + 1; j < ordered.length; j += 1) {
+        const next = ordered[j];
+        if (next.type === "p") {
+          const paragraphText = normalize(textFromParagraphPO(next.node));
+          if (paragraphText) continue;
+        }
+
+        if (next.type === "tbl") {
+          const table = tableFromPreserveOrder(next.node);
+          const header = table[0]?.map((cell) => normalizeSearch(cell)) ?? [];
+          const hasRequiredColumns =
+            header.some((cell) => cell === "pais") &&
+            header.some((cell) => cell.includes("desarrollador")) &&
+            header.some((cell) => cell.includes("aplicacion")) &&
+            header.some((cell) => cell.includes("jefe"));
+
+          if (hasRequiredColumns) return table;
+          break;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function extractCommunicationMatrix(table: string[][] | null): CommunicationMatrixRow[] {
+    if (!table || table.length < 2) return [];
+
+    const header = table[0].map((cell) => normalizeSearch(cell));
+    const countryIndex = header.findIndex((cell) => cell === "pais");
+    const developerIndex = header.findIndex((cell) =>
+      cell.includes("desarrollador"),
+    );
+    const applicationIndex = header.findIndex((cell) =>
+      cell.includes("aplicacion"),
+    );
+    const bossIndex = header.findIndex((cell) => cell.includes("jefe"));
+
+    const contactIndexes = header.reduce<number[]>((acc, cell, index) => {
+      if (cell.includes("numero de contacto")) acc.push(index);
+      return acc;
+    }, []);
+
+    if (
+      countryIndex === -1 ||
+      developerIndex === -1 ||
+      applicationIndex === -1 ||
+      bossIndex === -1
+    ) {
+      return [];
+    }
+
+    const developerContactIndex =
+      contactIndexes.find((index) => index > developerIndex && index < applicationIndex) ?? -1;
+    const bossContactIndex =
+      contactIndexes.find((index) => index > bossIndex) ?? contactIndexes[1] ?? -1;
+
+    return table
+      .slice(1)
+      .map((row) => {
+        const repositories = splitRepositoryValues(row[applicationIndex] ?? "");
+        return {
+          country: normalize(row[countryIndex] ?? "").toUpperCase(),
+          developerName: normalize(row[developerIndex] ?? ""),
+          developerContact:
+            developerContactIndex >= 0
+              ? normalize(row[developerContactIndex] ?? "")
+              : "",
+          repositories,
+          repositoriesInput: repositories.join(", "),
+          pickerRepositories: [],
+          bossName: normalize(row[bossIndex] ?? ""),
+          bossContact:
+            bossContactIndex >= 0 ? normalize(row[bossContactIndex] ?? "") : "",
+        } satisfies CommunicationMatrixRow;
+      })
+      .filter(
+        (row) =>
+          row.country ||
+          row.developerName ||
+          row.developerContact ||
+          row.repositories.length > 0 ||
+          row.bossName ||
+          row.bossContact,
+      );
+  }
+
+  function extractPreviousStepsHtml(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const startIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "requisitos y trabajos que deben estar completados previo a la implementacion del cambio",
+      );
+    });
+
+    if (startIndex === -1) return "";
+
+    const endIndex = ordered.findIndex((item, index) => {
+      if (index <= startIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "respaldo de objetos",
+      );
+    });
+
+    const placeholder = normalizeSearch(
+      "[Describa aquí las consideraciones y actividades que ya deben estar gestionadas y realizadas por los equipos correspondientes previo a la instalación del cambio]",
+    );
+
+    const blocks: string[] = [];
+    for (let i = startIndex + 1; i < (endIndex === -1 ? ordered.length : endIndex); i += 1) {
+      const item = ordered[i];
+      if (item.type !== "p") continue;
+
+      const text = normalize(textFromParagraphPO(item.node));
+      if (!text) continue;
+      if (normalizeSearch(text) === placeholder) continue;
+
+      blocks.push(`<p>${escapeHtml(text)}</p>`);
+    }
+
+    return blocks.join("");
+  }
+
+  const repositoryNames = extractRepositoryNamesFromParagraphs(paragraphs);
+  const communicationMatrix = extractCommunicationMatrix(
+    findCommunicationMatrixTable(orderedNodes),
+  );
+  const previousStepsHtml = extractPreviousStepsHtml(orderedNodes);
 
   // BUSCAR EL INICIO DEL BLOQUE DE PIEZAS DETALLADAS
   let startIndexDetailed = -1;
@@ -817,13 +1026,6 @@ export async function parseDocxArrayBuffer(
 
   const infoTbl = findInfoGeneralTable(tables);
 
-  function normalizeSearch(s: string) {
-    return normalize(s)
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-  }
-
   function extractListValueRows(rows: string[][]): string[] {
     const out: string[] = [];
     for (const row of rows) {
@@ -998,6 +1200,9 @@ export async function parseDocxArrayBuffer(
     detailedFixPieces,
     servicesProducts,
     affectedAreas,
+    repositoryNames,
+    communicationMatrix,
+    previousStepsHtml,
     seccionesReconocidas,
     raw: { paragraphs, tables },
   };

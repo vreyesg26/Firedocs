@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("ipc", {
   templateList: () => ipcRenderer.invoke("template:list"),
   templateImportDocx: () => ipcRenderer.invoke("template:import-docx"),
   templateRead: (id: string) => ipcRenderer.invoke("template:read", id),
+  templatePreviewPdf: (id: string) => ipcRenderer.invoke("template:preview-pdf", id),
+  templateDelete: (id: string) => ipcRenderer.invoke("template:delete", id),
 
   // --- Borradores ---
   draftList: () => ipcRenderer.invoke("draft:list"),

@@ -7,6 +7,7 @@ import type {
   UIField,
   PiezasGrupo,
   CommunicationMatrixRow,
+  BackupTableGroup,
 } from "@/types/manual";
 import type { RepoStatus } from "@/types/git";
 import { countryOptions } from "@/lib/constants";
@@ -30,10 +31,12 @@ function buildDraftSnapshot(input: {
   sections: UISection[] | null;
   detailedPieces: PiezasGrupo[];
   detailedFixPieces: PiezasGrupo[];
+  backupTables: BackupTableGroup[];
   servicesProducts: string[];
   affectedAreas: string[];
   repositoryNames: string[];
   communicationMatrix: CommunicationMatrixRow[];
+  previousStepsHtml: string;
 }) {
   return JSON.stringify({
     manualTitle: (input.manualTitle || "").trim(),
@@ -41,10 +44,12 @@ function buildDraftSnapshot(input: {
     sections: input.sections ?? [],
     detailedPieces: input.detailedPieces ?? [],
     detailedFixPieces: input.detailedFixPieces ?? [],
+    backupTables: input.backupTables ?? [],
     servicesProducts: input.servicesProducts ?? [],
     affectedAreas: input.affectedAreas ?? [],
     repositoryNames: input.repositoryNames ?? [],
     communicationMatrix: input.communicationMatrix ?? [],
+    previousStepsHtml: input.previousStepsHtml ?? "",
   });
 }
 
@@ -105,6 +110,10 @@ function sanitizeCommunicationMatrix(values: unknown): CommunicationMatrixRow[] 
         developerName: String(row.developerName ?? "").trim(),
         developerContact: String(row.developerContact ?? "").trim(),
         repositories: sanitizeTextList(row.repositories),
+        repositoriesInput: String(
+          row.repositoriesInput ?? sanitizeTextList(row.repositories).join(", "),
+        ),
+        pickerRepositories: sanitizeTextList(row.pickerRepositories),
         bossName: String(row.bossName ?? "").trim(),
         bossContact: String(row.bossContact ?? "").trim(),
       } satisfies CommunicationMatrixRow;
@@ -138,12 +147,14 @@ export function useManualManager() {
   const [detailedFixPieces, setDetailedFixPieces] = useState<PiezasGrupo[]>(
     [],
   );
+  const [backupTables, setBackupTables] = useState<BackupTableGroup[]>([]);
   const [servicesProducts, setServicesProducts] = useState<string[]>([""]);
   const [affectedAreas, setAffectedAreas] = useState<string[]>([""]);
   const [repositoryNames, setRepositoryNames] = useState<string[]>([]);
   const [communicationMatrix, setCommunicationMatrix] = useState<
     CommunicationMatrixRow[]
   >([]);
+  const [previousStepsHtml, setPreviousStepsHtml] = useState("");
 
   const currentDraftSnapshot = useMemo(
     () =>
@@ -153,10 +164,12 @@ export function useManualManager() {
         sections,
         detailedPieces,
         detailedFixPieces,
+        backupTables,
         servicesProducts,
         affectedAreas,
         repositoryNames,
         communicationMatrix,
+        previousStepsHtml,
       }),
     [
       manualTitle,
@@ -164,10 +177,12 @@ export function useManualManager() {
       sections,
       detailedPieces,
       detailedFixPieces,
+      backupTables,
       servicesProducts,
       affectedAreas,
       repositoryNames,
       communicationMatrix,
+      previousStepsHtml,
     ],
   );
 
@@ -285,6 +300,7 @@ export function useManualManager() {
     setSections(norm);
     setDetailedPieces(parsed.piezasDetalladas ?? []);
     setDetailedFixPieces(parsed.detailedFixPieces ?? []);
+    setBackupTables(parsed.backupTables ?? []);
     setServicesProducts(
       Array.isArray(parsed.servicesProducts) && parsed.servicesProducts.length > 0
         ? parsed.servicesProducts
@@ -299,6 +315,7 @@ export function useManualManager() {
     setCommunicationMatrix(
       sanitizeCommunicationMatrix(parsed.communicationMatrix),
     );
+    setPreviousStepsHtml(parsed.previousStepsHtml ?? "");
     setManualTitle("Sin título");
     setActiveStep(0);
     setDraftId(null);
@@ -342,6 +359,9 @@ export function useManualManager() {
       detailedFixPieces,
       servicesProducts,
       affectedAreas,
+      repositoryNames,
+      communicationMatrix,
+      previousStepsHtml,
     );
     await window.ipc.saveDocx(out, "Manual-actualizado.docx");
   }
@@ -383,10 +403,12 @@ export function useManualManager() {
         sections,
         detailedPieces,
         detailedFixPieces,
+        backupTables,
         servicesProducts: cleanedServicesProducts,
         affectedAreas: cleanedAffectedAreas,
         repositoryNames: cleanedRepositoryNames,
         communicationMatrix: cleanedCommunicationMatrix,
+        previousStepsHtml,
         templateBytesBase64: templateBytes ? uint8ToB64(templateBytes) : null,
       },
     };
@@ -401,10 +423,12 @@ export function useManualManager() {
           sections,
           detailedPieces,
           detailedFixPieces,
+          backupTables,
           servicesProducts: cleanedServicesProducts,
           affectedAreas: cleanedAffectedAreas,
           repositoryNames: cleanedRepositoryNames,
           communicationMatrix: cleanedCommunicationMatrix,
+          previousStepsHtml,
         }),
       );
     }
@@ -422,16 +446,19 @@ export function useManualManager() {
       sections?: unknown;
       detailedPieces?: unknown;
       detailedFixPieces?: unknown;
+      backupTables?: unknown;
       servicesProducts?: unknown;
       affectedAreas?: unknown;
       repositoryNames?: unknown;
       communicationMatrix?: unknown;
+      previousStepsHtml?: unknown;
       templateBytesBase64?: string | null;
     };
     setData((state.data as ManualExtract | null) ?? null);
     setSections((state.sections as UISection[] | null) ?? null);
     setDetailedPieces((state.detailedPieces as PiezasGrupo[]) ?? []);
     setDetailedFixPieces((state.detailedFixPieces as PiezasGrupo[]) ?? []);
+    setBackupTables((state.backupTables as BackupTableGroup[]) ?? []);
     const loadedServicesProducts = sanitizeTextList(state.servicesProducts);
     const loadedAffectedAreas = sanitizeTextList(state.affectedAreas);
     const loadedRepositoryNames = sanitizeTextList(state.repositoryNames);
@@ -442,6 +469,7 @@ export function useManualManager() {
     setAffectedAreas(loadedAffectedAreas);
     setRepositoryNames(loadedRepositoryNames);
     setCommunicationMatrix(loadedCommunicationMatrix);
+    setPreviousStepsHtml(String(state.previousStepsHtml ?? ""));
     setTemplateBytes(
       state.templateBytesBase64 ? b64ToUint8(state.templateBytesBase64) : null,
     );
@@ -461,10 +489,12 @@ export function useManualManager() {
         sections: (state.sections as UISection[] | null) ?? null,
         detailedPieces: (state.detailedPieces as PiezasGrupo[]) ?? [],
         detailedFixPieces: (state.detailedFixPieces as PiezasGrupo[]) ?? [],
+        backupTables: (state.backupTables as BackupTableGroup[]) ?? [],
         servicesProducts: loadedServicesProducts,
         affectedAreas: loadedAffectedAreas,
         repositoryNames: loadedRepositoryNames,
         communicationMatrix: loadedCommunicationMatrix,
+        previousStepsHtml: String(state.previousStepsHtml ?? ""),
       }),
     );
     return true;
@@ -484,10 +514,12 @@ export function useManualManager() {
     sections,
     detailedPieces,
     detailedFixPieces,
+    backupTables,
     servicesProducts,
     affectedAreas,
     repositoryNames,
     communicationMatrix,
+    previousStepsHtml,
     templateBytes,
     manualTitle,
     activeStep,
@@ -500,10 +532,12 @@ export function useManualManager() {
     setSections,
     setDetailedPieces,
     setDetailedFixPieces,
+    setBackupTables,
     setServicesProducts,
     setAffectedAreas,
     setRepositoryNames,
     setCommunicationMatrix,
+    setPreviousStepsHtml,
     setManualTitle,
     setActiveStep,
     setGitData,

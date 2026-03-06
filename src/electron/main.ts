@@ -3,8 +3,10 @@ import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import os from "node:os";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { simpleGit } from "simple-git";
 import type { SimpleGit, StatusResult } from "simple-git";
@@ -14,7 +16,7 @@ const __dirname = path.dirname(__filename);
 
 const isDev =
   !!process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === "development";
-const APP_NAME = "FireDocs";
+const APP_NAME = "Firedocs";
 
 function buildWindowTitle(section?: string) {
   const suffix = (section ?? "").trim();
@@ -135,6 +137,26 @@ async function ensureTemplatesDir() {
   await fsp.mkdir(templatesDir(), { recursive: true });
 }
 
+function templatePreviewsDir() {
+  return path.join(templatesDir(), "previews");
+}
+
+async function ensureTemplatePreviewsDir() {
+  await fsp.mkdir(templatePreviewsDir(), { recursive: true });
+}
+
+function safeTemplateFilePath(id: string) {
+  const base = path.basename(id);
+  if (!base || base !== id) return null;
+  return path.join(templatesDir(), base);
+}
+
+function safeTemplatePreviewPath(id: string) {
+  const base = path.basename(id, path.extname(id));
+  if (!base) return null;
+  return path.join(templatePreviewsDir(), `${base}.pdf`);
+}
+
 async function readStoredTemplate(filePath: string): Promise<StoredTemplateFile | null> {
   try {
     const raw = await fsp.readFile(filePath, "utf8");
@@ -143,6 +165,147 @@ async function readStoredTemplate(filePath: string): Promise<StoredTemplateFile 
     return parsed;
   } catch {
     return null;
+  }
+}
+
+function resolveLibreOfficeBinary() {
+  const envCandidate = process.env.FIREDOCS_LIBREOFFICE_PATH?.trim();
+  if (envCandidate && existsSync(envCandidate)) return envCandidate;
+
+  const candidatesByPlatform =
+    process.platform === "win32"
+      ? [
+          path.join(
+            process.env["ProgramFiles"] ?? "C:\\Program Files",
+            "LibreOffice",
+            "program",
+            "soffice.exe",
+          ),
+          path.join(
+            process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)",
+            "LibreOffice",
+            "program",
+            "soffice.exe",
+          ),
+        ]
+      : process.platform === "darwin"
+        ? [
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+          ]
+        : [
+            "/usr/bin/soffice",
+            "/snap/bin/libreoffice",
+          ];
+
+  for (const candidate of candidatesByPlatform) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return "soffice";
+}
+
+const LIBREOFFICE_BINARY = resolveLibreOfficeBinary();
+
+async function runLibreOfficeConvertToPdf(
+  sourceDocxPath: string,
+  outputDir: string,
+) {
+  const userProfileDir = path.join(outputDir, "lo-profile");
+  await fsp.mkdir(userProfileDir, { recursive: true });
+
+  const args = [
+    "--headless",
+    `-env:UserInstallation=${pathToFileURL(userProfileDir).toString()}`,
+    "--convert-to",
+    "pdf:writer_pdf_Export",
+    "--outdir",
+    outputDir,
+    sourceDocxPath,
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(LIBREOFFICE_BINARY, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(
+        new Error(
+          `No se pudo ejecutar LibreOffice (${LIBREOFFICE_BINARY}). ${error.message}`,
+        ),
+      );
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          stderr.trim() ||
+            `LibreOffice terminó con código ${code ?? "desconocido"}.`,
+        ),
+      );
+    });
+  });
+}
+
+async function generateTemplatePreviewPdf(templateId: string) {
+  await ensureTemplatesDir();
+  await ensureTemplatePreviewsDir();
+
+  const templatePath = safeTemplateFilePath(templateId);
+  const previewPath = safeTemplatePreviewPath(templateId);
+  if (!templatePath || !previewPath || !existsSync(templatePath)) return null;
+
+  const templateStat = await fsp.stat(templatePath);
+  if (existsSync(previewPath)) {
+    const previewStat = await fsp.stat(previewPath);
+    if (previewStat.mtimeMs >= templateStat.mtimeMs) {
+      const pdf = await fsp.readFile(previewPath);
+      return {
+        id: templateId,
+        pdfBytes: new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength),
+        fromCache: true,
+      };
+    }
+  }
+
+  const stored = await readStoredTemplate(templatePath);
+  if (!stored) return null;
+
+  const docxBytes = Buffer.from(stored.docxBase64, "base64");
+  const templateHash = createHash("sha1").update(docxBytes).digest("hex");
+  const workingDir = await fsp.mkdtemp(
+    path.join(os.tmpdir(), `firedocs-preview-${templateHash.slice(0, 8)}-`),
+  );
+
+  try {
+    const inputDocxPath = path.join(workingDir, `${templateHash}.docx`);
+    const outputPdfPath = path.join(workingDir, `${templateHash}.pdf`);
+    await fsp.writeFile(inputDocxPath, docxBytes);
+    await runLibreOfficeConvertToPdf(inputDocxPath, workingDir);
+
+    if (!existsSync(outputPdfPath)) {
+      throw new Error("LibreOffice no generó el PDF esperado.");
+    }
+
+    await fsp.copyFile(outputPdfPath, previewPath);
+    const pdf = await fsp.readFile(previewPath);
+    return {
+      id: templateId,
+      pdfBytes: new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength),
+      fromCache: false,
+    };
+  } finally {
+    await fsp.rm(workingDir, { recursive: true, force: true });
   }
 }
 
@@ -192,7 +355,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1300,
     height: 900,
-    title: buildWindowTitle("Manuales automatizados"),
+    title: buildWindowTitle(),
     webPreferences: {
       preload: getPreloadPath(),
       nodeIntegration: false,
@@ -718,6 +881,8 @@ function registerTemplateIpcHandlers() {
   ipcMain.removeHandler("template:list");
   ipcMain.removeHandler("template:import-docx");
   ipcMain.removeHandler("template:read");
+  ipcMain.removeHandler("template:preview-pdf");
+  ipcMain.removeHandler("template:delete");
 
   ipcMain.handle("template:list", async () => {
     await ensureTemplatesDir();
@@ -794,7 +959,8 @@ function registerTemplateIpcHandlers() {
   ipcMain.handle("template:read", async (_evt, id: string) => {
     if (!id) return null;
     await ensureTemplatesDir();
-    const filePath = path.join(templatesDir(), id);
+    const filePath = safeTemplateFilePath(id);
+    if (!filePath) return null;
     if (!existsSync(filePath)) return null;
 
     const stored = await readStoredTemplate(filePath);
@@ -807,6 +973,43 @@ function registerTemplateIpcHandlers() {
       sourceFileName: stored.sourceFileName,
       bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     };
+  });
+
+  ipcMain.handle("template:preview-pdf", async (_evt, id: string) => {
+    if (!id) return null;
+
+    try {
+      const preview = await generateTemplatePreviewPdf(id);
+      if (!preview) return null;
+      return {
+        id: preview.id,
+        bytes: preview.pdfBytes,
+        mimeType: "application/pdf",
+        fromCache: preview.fromCache,
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        id,
+        error: message.includes("soffice")
+          ? "No se encontró LibreOffice instalado para generar la vista previa."
+          : `No se pudo generar la vista previa PDF. ${message}`,
+      };
+    }
+  });
+
+  ipcMain.handle("template:delete", async (_evt, id: string) => {
+    if (!id) return false;
+
+    const templatePath = safeTemplateFilePath(id);
+    const previewPath = safeTemplatePreviewPath(id);
+    if (!templatePath) return false;
+
+    await fsp.rm(templatePath, { force: true });
+    if (previewPath) {
+      await fsp.rm(previewPath, { force: true });
+    }
+    return true;
   });
 }
 

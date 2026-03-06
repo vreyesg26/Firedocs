@@ -35,11 +35,36 @@ export interface PiezasGrupo {
   items: PiezasItem[];
 }
 
+export interface BackupHeaderOneRow {
+  responsibleTeam: string;
+  databaseOrDirectory: string;
+  application: string;
+}
+
+export interface BackupProcedureRow {
+  step: string;
+  objectToBackup: string;
+}
+
+export interface BackupHeaderThreeRow {
+  server: string;
+  additionalComments: string;
+}
+
+export interface BackupTableGroup {
+  title: string;
+  headerOne: BackupHeaderOneRow;
+  procedureRows: BackupProcedureRow[];
+  headerThree: BackupHeaderThreeRow;
+}
+
 export interface CommunicationMatrixRow {
   country: string;
   developerName: string;
   developerContact: string;
   repositories: string[];
+  repositoriesInput?: string;
+  pickerRepositories?: string[];
   bossName: string;
   bossContact: string;
 }
@@ -53,10 +78,12 @@ export interface ManualExtract {
   camposDetectados: KeyValueField[];
   piezasDetalladas: PiezasGrupo[];
   detailedFixPieces?: PiezasGrupo[];
+  backupTables?: BackupTableGroup[];
   servicesProducts?: string[];
   affectedAreas?: string[];
   repositoryNames?: string[];
   communicationMatrix?: CommunicationMatrixRow[];
+  previousStepsHtml?: string;
   seccionesReconocidas: UISection[];
   raw: { paragraphs: string[]; tables: string[][][] };
 }

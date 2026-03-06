@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActionIcon,
   Button,
+  Checkbox,
   Divider,
   Group,
-  MultiSelect,
+  Modal,
   Paper,
   ScrollArea,
   Select,
@@ -36,6 +37,8 @@ const EMPTY_COMMUNICATION_ROW: CommunicationMatrixRow = {
   developerName: "",
   developerContact: "",
   repositories: [],
+  repositoriesInput: "",
+  pickerRepositories: [],
   bossName: "",
   bossContact: "",
 };
@@ -56,6 +59,61 @@ function toRepositoryMultiselectLabel(repositoryName: string) {
   return parts[parts.length - 1] || trimmed;
 }
 
+function normalizeRepositoryOptionValue(repositoryName: string) {
+  return toRepositoryMultiselectLabel(repositoryName).trim();
+}
+
+function normalizeRepositoryValue(value: string) {
+  return value.trim();
+}
+
+function parseRepositoryInput(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map(normalizeRepositoryValue)
+        .filter((item) => item.length > 0),
+    ),
+  );
+}
+
+function filterPickerRepositories(
+  repositories: string[],
+  pickerRepositories: string[] | undefined,
+) {
+  const currentSet = new Set(repositories);
+  return (pickerRepositories ?? []).filter((value) => currentSet.has(value));
+}
+
+function formatRepositoriesInput(repositories: string[]) {
+  return repositories.join(", ");
+}
+
+function removeValueAt<T>(values: T[], index: number) {
+  return values.filter((_, itemIndex) => itemIndex !== index);
+}
+
+function mergeRepositoriesKeepingOrder(
+  currentRepositories: string[],
+  currentPickerRepositories: string[],
+  nextPickerRepositories: string[],
+) {
+  const currentPickerSet = new Set(currentPickerRepositories);
+  const nextPickerSet = new Set(nextPickerRepositories);
+
+  const keptRepositories = currentRepositories.filter(
+    (value) => !currentPickerSet.has(value) || nextPickerSet.has(value),
+  );
+
+  const keptSet = new Set(keptRepositories);
+  const appendedRepositories = nextPickerRepositories.filter(
+    (value) => !currentPickerSet.has(value) && !keptSet.has(value),
+  );
+
+  return [...keptRepositories, ...appendedRepositories];
+}
+
 export const FifthStep = () => {
   const {
     detailedPieces,
@@ -72,19 +130,32 @@ export const FifthStep = () => {
   };
 
   const repositoryInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const matrixRepositoryInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const previousInferredRepositoriesRef = useRef<string[]>([]);
   const [pendingRepositoryFocus, setPendingRepositoryFocus] = useState<
     number | null
   >(null);
+  const [repositoryPickerRow, setRepositoryPickerRow] = useState<number | null>(
+    null,
+  );
+  const [repositoryPickerSelection, setRepositoryPickerSelection] = useState<
+    string[]
+  >([]);
 
-  const repositories =
-    Array.isArray(repositoryNamesRaw) && repositoryNamesRaw.length > 0
-      ? repositoryNamesRaw
-      : [""];
-  const communicationRows =
-    Array.isArray(communicationMatrixRaw) && communicationMatrixRaw.length > 0
-      ? communicationMatrixRaw
-      : [{ ...EMPTY_COMMUNICATION_ROW }];
+  const repositories = useMemo(
+    () =>
+      Array.isArray(repositoryNamesRaw) && repositoryNamesRaw.length > 0
+        ? repositoryNamesRaw
+        : [""],
+    [repositoryNamesRaw],
+  );
+  const communicationRows = useMemo(
+    () =>
+      Array.isArray(communicationMatrixRaw) && communicationMatrixRaw.length > 0
+        ? communicationMatrixRaw
+        : [{ ...EMPTY_COMMUNICATION_ROW }],
+    [communicationMatrixRaw],
+  );
 
   const inferredRepositories = useMemo(() => {
     const names = (detailedPieces ?? [])
@@ -135,12 +206,12 @@ export const FifthStep = () => {
       Array.from(
         new Set(
           repositories
-            .map((value) => value.trim())
+            .map((value) => normalizeRepositoryOptionValue(value))
             .filter((value) => value.length > 0),
         ),
       ).map((value) => ({
         value,
-        label: toRepositoryMultiselectLabel(value),
+        label: value,
       })),
     [repositories],
   );
@@ -161,15 +232,126 @@ export const FifthStep = () => {
 
   function handleMatrixRowChange(
     index: number,
-    key: keyof CommunicationMatrixRow,
-    value: string | string[],
+    patch: Partial<CommunicationMatrixRow>,
   ) {
     const next = [...communicationRows];
     next[index] = {
       ...next[index],
-      [key]: value,
+      ...patch,
     };
     setCommunicationMatrix(next);
+  }
+
+  function handleMatrixRepositoriesInputChange(index: number, value: string) {
+    const parsedRepositories = parseRepositoryInput(value);
+    const currentRow = communicationRows[index] ?? EMPTY_COMMUNICATION_ROW;
+    handleMatrixRowChange(index, {
+      repositories: parsedRepositories,
+      repositoriesInput: value.replace(/,(?!\s)/g, ", "),
+      pickerRepositories: filterPickerRepositories(
+        parsedRepositories,
+        currentRow.pickerRepositories,
+      ),
+    });
+  }
+
+  function handleOpenRepositoryPicker(index: number) {
+    setRepositoryPickerRow(index);
+    setRepositoryPickerSelection(
+      communicationRows[index]?.pickerRepositories ?? [],
+    );
+  }
+
+  function handleCloseRepositoryPicker() {
+    setRepositoryPickerRow(null);
+    setRepositoryPickerSelection([]);
+  }
+
+  function handleAddRepositoriesFromPicker() {
+    if (repositoryPickerRow === null) return;
+    const currentRow =
+      communicationRows[repositoryPickerRow] ?? EMPTY_COMMUNICATION_ROW;
+    const nextPickerRepositories = Array.from(
+      new Set(repositoryPickerSelection),
+    );
+    const nextRepositories = mergeRepositoriesKeepingOrder(
+      currentRow.repositories,
+      currentRow.pickerRepositories ?? [],
+      nextPickerRepositories,
+    );
+
+    handleMatrixRowChange(repositoryPickerRow, {
+      repositories: nextRepositories,
+      repositoriesInput: formatRepositoriesInput(nextRepositories),
+      pickerRepositories: nextPickerRepositories,
+    });
+    handleCloseRepositoryPicker();
+  }
+
+  function handleMatrixRepositoriesKeyDown(
+    index: number,
+    event: React.KeyboardEvent<HTMLInputElement>,
+  ) {
+    if (event.key !== "Backspace" && event.key !== "Delete") return;
+    if (event.currentTarget.selectionStart !== event.currentTarget.selectionEnd) return;
+
+    const row = communicationRows[index];
+    if (!row?.repositories?.length || !row.pickerRepositories?.length) return;
+
+    const value = row.repositories.join(", ");
+    const caret = event.currentTarget.selectionStart ?? 0;
+    let start = 0;
+
+    for (let tokenIndex = 0; tokenIndex < row.repositories.length; tokenIndex += 1) {
+      const token = row.repositories[tokenIndex];
+      const end = start + token.length;
+      const isPickerRepository = (row.pickerRepositories ?? []).includes(token);
+
+      const shouldRemoveWithBackspace =
+        event.key === "Backspace" &&
+        isPickerRepository &&
+        caret === end &&
+        value.slice(end, end + 2) === ", ";
+      const shouldRemoveWithDelete =
+        event.key === "Delete" &&
+        isPickerRepository &&
+        caret === start &&
+        (start === 0 || value.slice(Math.max(0, start - 2), start) === ", ");
+
+      if (shouldRemoveWithBackspace || shouldRemoveWithDelete) {
+        event.preventDefault();
+        const nextRepositories = removeValueAt(row.repositories, tokenIndex);
+        const nextPickerRepositories = (row.pickerRepositories ?? []).filter(
+          (item) => item !== token,
+        );
+
+        handleMatrixRowChange(index, {
+          repositories: nextRepositories,
+          repositoriesInput: formatRepositoriesInput(nextRepositories),
+          pickerRepositories: nextPickerRepositories,
+        });
+
+        if (repositoryPickerRow === index) {
+          setRepositoryPickerSelection(nextPickerRepositories);
+        }
+
+        window.requestAnimationFrame(() => {
+          const input = matrixRepositoryInputRefs.current[index];
+          if (!input) return;
+          const nextValue = nextRepositories.join(", ");
+          const nextCaret = shouldRemoveWithBackspace
+            ? Math.max(0, Math.min(start, nextValue.length))
+            : Math.max(0, Math.min(start, nextValue.length));
+          input.focus();
+          input.setSelectionRange(nextCaret, nextCaret);
+        });
+        return;
+      }
+
+      start = end + 2;
+    }
+
+    if (value.length === 0) return;
   }
 
   function handleAddMatrixRow() {
@@ -200,6 +382,57 @@ export const FifthStep = () => {
     <>
       <Title order={2}>Repositorios y matriz de comunicación</Title>
       <Divider my="xs" />
+      <Modal
+        opened={repositoryPickerRow !== null}
+        onClose={handleCloseRepositoryPicker}
+        title="Agregar repositorios existentes"
+        centered
+        size="md"
+      >
+        <Stack gap="lg">
+          <Text size="sm" c="dimmed">
+            Selecciona uno o varios repositorios para agregarlos al campo actual.
+          </Text>
+          {repositoryOptions.length > 0 ? (
+            <ScrollArea.Autosize mah={260} offsetScrollbars>
+              <Checkbox.Group
+                value={repositoryPickerSelection}
+                onChange={setRepositoryPickerSelection}
+              >
+                <Stack gap="xs">
+                  {repositoryOptions.map((option) => (
+                    <Checkbox
+                      key={option.value}
+                      value={option.value}
+                      label={option.label}
+                    />
+                  ))}
+                </Stack>
+              </Checkbox.Group>
+            </ScrollArea.Autosize>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No hay repositorios disponibles para agregar.
+            </Text>
+          )}
+          <Group justify="space-between" align="center">
+            <Text size="sm" c="dimmed">
+              {repositoryPickerSelection.length} seleccionados
+            </Text>
+            <Group gap="sm">
+            <Button variant="default" onClick={handleCloseRepositoryPicker}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAddRepositoriesFromPicker}
+              disabled={repositoryOptions.length === 0}
+            >
+              Agregar seleccionados
+            </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
       <Stack>
         <Paper withBorder p="sm" radius="sm">
           <Stack gap="xs">
@@ -275,7 +508,9 @@ export const FifthStep = () => {
                           data={COUNTRY_OPTIONS}
                           value={row.country}
                           onChange={(value) =>
-                            handleMatrixRowChange(index, "country", value ?? "")
+                            handleMatrixRowChange(index, {
+                              country: value ?? "",
+                            })
                           }
                           placeholder="País"
                           allowDeselect={false}
@@ -285,11 +520,9 @@ export const FifthStep = () => {
                         <TextInput
                           value={row.developerName}
                           onChange={(event) =>
-                            handleMatrixRowChange(
-                              index,
-                              "developerName",
-                              event.currentTarget.value,
-                            )
+                            handleMatrixRowChange(index, {
+                              developerName: event.currentTarget.value,
+                            })
                           }
                         />
                       </Table.Td>
@@ -297,51 +530,51 @@ export const FifthStep = () => {
                         <TextInput
                           value={row.developerContact}
                           onChange={(event) =>
-                            handleMatrixRowChange(
-                              index,
-                              "developerContact",
-                              event.currentTarget.value,
-                            )
+                            handleMatrixRowChange(index, {
+                              developerContact: event.currentTarget.value,
+                            })
                           }
                         />
                       </Table.Td>
                       <Table.Td>
-                        <MultiSelect
-                          data={repositoryOptions}
-                          value={row.repositories}
-                          onChange={(value) =>
-                            handleMatrixRowChange(index, "repositories", value)
-                          }
-                          nothingFoundMessage="Sin repositorios"
-                          searchable
-                          clearable
-                          styles={{
-                            input: {
-                              alignItems: "flex-start",
-                              minHeight: 36,
-                              height: "auto",
-                            },
-                            pillsList: {
-                              display: "flex",
-                              flexWrap: "wrap",
-                              rowGap: 6,
-                              columnGap: 6,
-                            },
-                            pill: {
-                              maxWidth: "100%",
-                            },
-                          }}
-                        />
+                        <Group  wrap="nowrap" gap={4}>
+                          <TextInput
+                            ref={(node) => {
+                              matrixRepositoryInputRefs.current[index] = node;
+                            }}
+                            value={
+                              row.repositoriesInput ??
+                              formatRepositoriesInput(row.repositories)
+                            }
+                            onChange={(event) =>
+                              handleMatrixRepositoriesInputChange(
+                                index,
+                                event.currentTarget.value,
+                              )
+                            }
+                            onKeyDown={(event) =>
+                              handleMatrixRepositoriesKeyDown(index, event)
+                            }
+                            placeholder="Escribe repositorios separados por comas"
+                            style={{ flex: 1 }}
+                          />
+                          <ActionIcon
+                            variant="light"
+                            onClick={() => handleOpenRepositoryPicker(index)}
+                            disabled={repositoryOptions.length === 0}
+                            aria-label="Agregar desde repositorios existentes"
+                          >
+                            <IconPlus size={16} />
+                          </ActionIcon>
+                        </Group>
                       </Table.Td>
                       <Table.Td>
                         <TextInput
                           value={row.bossName}
                           onChange={(event) =>
-                            handleMatrixRowChange(
-                              index,
-                              "bossName",
-                              event.currentTarget.value,
-                            )
+                            handleMatrixRowChange(index, {
+                              bossName: event.currentTarget.value,
+                            })
                           }
                         />
                       </Table.Td>
@@ -349,11 +582,9 @@ export const FifthStep = () => {
                         <TextInput
                           value={row.bossContact}
                           onChange={(event) =>
-                            handleMatrixRowChange(
-                              index,
-                              "bossContact",
-                              event.currentTarget.value,
-                            )
+                            handleMatrixRowChange(index, {
+                              bossContact: event.currentTarget.value,
+                            })
                           }
                         />
                       </Table.Td>

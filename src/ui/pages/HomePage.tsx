@@ -24,7 +24,7 @@ export default function HomePage() {
   const [hasDrafts, setHasDrafts] = useState(false);
 
   useEffect(() => {
-    void window.ipc.setWindowTitle("Manuales automatizados");
+    void window.ipc.setWindowTitle();
   }, []);
 
   useEffect(() => {
@@ -69,7 +69,7 @@ export default function HomePage() {
       <Container strategy="grid" size="lg" py="xl" fluid>
         <Group justify="center" gap="xs">
           <Badge variant="filled" size="lg" color={mainColor}>
-            FireDocs
+            Firedocs
           </Badge>
           <Text size="sm">Version beta 1.0</Text>
         </Group>

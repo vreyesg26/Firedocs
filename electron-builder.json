@@ -1,5 +1,5 @@
 {
-  "productName": "FireDocs",
+  "productName": "Firedocs",
   "appId": "com.vrdev.installation-manuals-generator",
   "files": ["dist-electron", "dist-react"],
   "extraResources": [
@@ -20,5 +20,5 @@
   "win": {
     "target": [{ "target": "zip", "arch": ["x64"] }]
   },
-  "artifactName": "FireDocs.${ext}"
+  "artifactName": "Firedocs.${ext}"
 }

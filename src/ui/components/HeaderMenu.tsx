@@ -28,7 +28,7 @@ export function HeaderMenu() {
         style={{ cursor: "pointer" }}
       >
         <Image src={logo} w={35} />
-        <Title order={5}>FireDocs</Title>
+        <Title order={5}>Firedocs</Title>
       </Group>
 
       <Group gap={10} align="center">

@@ -22,9 +22,9 @@ import {
   IconPlus,
   IconEye,
   IconArrowRight,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
-import { parseDocxArrayBuffer } from "@/lib/docx-parser";
 import { mainColor } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -37,12 +37,6 @@ type TemplateMeta = {
   createdAt: string;
   updatedAt: string;
   size?: number;
-};
-
-type PreviewData = {
-  title: string;
-  paragraphs: string[];
-  tables: string[][][];
 };
 
 function bytesFromUnknown(input: unknown): Uint8Array | null {
@@ -73,7 +67,9 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const selected = useMemo(
     () => templates.find((t) => t.id === selectedId) ?? null,
@@ -95,6 +91,12 @@ export default function TemplatesPage() {
     }
   }
 
+  function resetPreview(url?: string | null) {
+    if (url) URL.revokeObjectURL(url);
+    setPreviewUrl(null);
+    setPreviewError(null);
+  }
+
   async function handleImportTemplate() {
     setImporting(true);
     try {
@@ -109,23 +111,63 @@ export default function TemplatesPage() {
 
   async function loadPreview(templateId: string) {
     setPreviewLoading(true);
+    setPreviewError(null);
     try {
-      const data = await window.ipc.templateRead(templateId);
-      const bytes = bytesFromUnknown(data?.bytes);
-      if (!bytes) {
-        setPreview(null);
+      const data = await window.ipc.templatePreviewPdf(templateId);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      if (!data) {
+        setPreviewUrl(null);
+        setPreviewError("No fue posible generar la vista previa.");
         return;
       }
-      const parsed = await parseDocxArrayBuffer(bytes);
-      setPreview({
-        title: data?.sourceFileName || data?.name || "Vista previa",
-        paragraphs: parsed.raw?.paragraphs ?? [],
-        tables: parsed.raw?.tables ?? [],
-      });
-    } catch {
-      setPreview(null);
+      if ("error" in data) {
+        setPreviewUrl(null);
+        setPreviewError(data.error);
+        return;
+      }
+      const bytes = bytesFromUnknown(data.bytes);
+      if (!bytes) {
+        setPreviewUrl(null);
+        setPreviewError("No fue posible leer el PDF de vista previa.");
+        return;
+      }
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      setPreviewUrl(URL.createObjectURL(blob));
+    } catch (error: unknown) {
+      setPreviewUrl(null);
+      setPreviewError(
+        error instanceof Error
+          ? error.message
+          : "No fue posible generar la vista previa.",
+      );
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function handleDeleteTemplate(templateId: string) {
+    const template = templates.find((item) => item.id === templateId);
+    const confirmed = window.confirm(
+      `Eliminar la plantilla "${template?.name || "Sin título"}"?`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(templateId);
+    try {
+      const ok = await window.ipc.templateDelete(templateId);
+      if (!ok) {
+        alert("No se pudo eliminar la plantilla.");
+        return;
+      }
+
+      if (selectedId === templateId) {
+        resetPreview(previewUrl);
+      }
+      await refreshTemplates();
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -152,11 +194,17 @@ export default function TemplatesPage() {
 
   useEffect(() => {
     if (!selectedId) {
-      setPreview(null);
+      resetPreview(previewUrl);
       return;
     }
-    loadPreview(selectedId);
+    void loadPreview(selectedId);
   }, [selectedId]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   if (loading) {
     return (
@@ -239,11 +287,25 @@ export default function TemplatesPage() {
                       Actualizada: {new Date(tpl.updatedAt).toLocaleString()}
                     </Text>
                   </Box>
-                  {selectedId === tpl.id && (
-                    <Badge color={mainColor} variant="filled">
-                      Seleccionada
-                    </Badge>
-                  )}
+                  <Group gap="xs" align="start">
+                    {selectedId === tpl.id && (
+                      <Badge color={mainColor} variant="filled">
+                        Seleccionada
+                      </Badge>
+                    )}
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      loading={deletingId === tpl.id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDeleteTemplate(tpl.id);
+                      }}
+                      aria-label="Eliminar plantilla"
+                    >
+                      <IconTrash size={16} />
+                    </ActionIcon>
+                  </Group>
                 </Group>
               </Card>
             ))}
@@ -264,79 +326,30 @@ export default function TemplatesPage() {
                 <Group justify="center" py="xl">
                   <Loader size="sm" />
                 </Group>
-              ) : !preview ? (
+              ) : previewError ? (
+                <Text c="dimmed">{previewError}</Text>
+              ) : !previewUrl ? (
                 <Text c="dimmed">No fue posible generar la vista previa.</Text>
               ) : (
                 <Paper
                   withBorder
                   radius="sm"
-                  p="md"
                   style={{
-                    background: "#f2f2f2",
                     maxHeight: "65vh",
-                    overflowY: "auto",
+                    minHeight: 640,
+                    overflow: "hidden",
                   }}
                 >
-                  <Paper
-                    withBorder
-                    radius={0}
-                    p="lg"
+                  <iframe
+                    title={`Vista previa de ${selected?.name ?? "plantilla"}`}
+                    src={previewUrl}
                     style={{
-                      background: "#fff",
-                      color: "#111",
-                      minHeight: 600,
+                      width: "100%",
+                      height: "65vh",
+                      border: "none",
+                      background: "#2c2c2c",
                     }}
-                  >
-                    <Stack gap="sm">
-                      <Text fw={700} c="black">
-                        {preview.title}
-                      </Text>
-
-                      {preview.paragraphs.slice(0, 14).map((p, i) => (
-                        <Text key={`p-${i}`} size="sm" c="black">
-                          {p}
-                        </Text>
-                      ))}
-
-                      {preview.tables.slice(0, 6).map((table, ti) => (
-                        <Box
-                          key={`t-${ti}`}
-                          style={{
-                            border: "1px solid #333",
-                            overflowX: "auto",
-                          }}
-                        >
-                          <table
-                            style={{
-                              width: "100%",
-                              borderCollapse: "collapse",
-                              fontSize: 12,
-                            }}
-                          >
-                            <tbody>
-                              {table.slice(0, 20).map((row, ri) => (
-                                <tr key={`r-${ri}`}>
-                                  {row.slice(0, 8).map((cell, ci) => (
-                                    <td
-                                      key={`c-${ci}`}
-                                      style={{
-                                        border: "1px solid #333",
-                                        padding: "4px 6px",
-                                        color: "#111",
-                                        verticalAlign: "top",
-                                      }}
-                                    >
-                                      {cell || " "}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Paper>
+                  />
                 </Paper>
               )}
 
