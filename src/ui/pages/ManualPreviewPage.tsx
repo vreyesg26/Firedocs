@@ -15,6 +15,7 @@ import {
 import { IconArrowLeft, IconFileUpload, IconRefresh } from "@tabler/icons-react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
+import { notifyError } from "@/lib/notifications";
 import { mainColor } from "@/lib/utils";
 
 function bytesFromUnknown(input: unknown): Uint8Array | null {
@@ -33,6 +34,7 @@ export default function ManualPreviewPage() {
   const { data, sections, manualTitle, previewCurrentManualPdf, handleExport } =
     useManual();
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -83,6 +85,23 @@ export default function ManualPreviewPage() {
     };
   }, [previewUrl]);
 
+  async function handleExportClick() {
+    setExporting(true);
+    try {
+      await handleExport();
+    } catch (error: unknown) {
+      notifyError({
+        title: "No se pudo exportar el manual",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No fue posible exportar el manual.",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   if (!data || !sections) {
     return <Navigate to="/" replace />;
   }
@@ -113,8 +132,9 @@ export default function ManualPreviewPage() {
           </Button>
           <Button
             leftSection={<IconFileUpload size={16} />}
-            onClick={handleExport}
+            onClick={handleExportClick}
             color={mainColor}
+            loading={exporting}
           >
             Exportar
           </Button>

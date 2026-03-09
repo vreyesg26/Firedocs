@@ -35,6 +35,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
+import { notifyError } from "@/lib/notifications";
 import {
   errorMessage,
   extFromFileName,
@@ -302,7 +303,10 @@ export function PiecesTablesStep({
       }
     } catch (error: unknown) {
       console.error(error);
-      alert(errorMessage(error));
+      notifyError({
+        title: "No se pudo cargar el repositorio",
+        message: errorMessage(error),
+      });
     } finally {
       setRepoSelectionLoading(false);
     }
@@ -323,7 +327,10 @@ export function PiecesTablesStep({
       setShowCommitInput(true);
     } catch (error: unknown) {
       console.error(error);
-      alert(errorMessage(error));
+      notifyError({
+        title: "No se pudo seleccionar el repositorio",
+        message: errorMessage(error),
+      });
     } finally {
       setCommitRepoSelectionLoading(false);
     }
@@ -381,7 +388,10 @@ export function PiecesTablesStep({
       }
     } catch (error: unknown) {
       console.error(error);
-      alert(errorMessage(error));
+      notifyError({
+        title: "No se pudo consultar el commit",
+        message: errorMessage(error),
+      });
     } finally {
       setCommitScanLoading(false);
     }

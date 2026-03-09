@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@mantine/core";
 import { IconBrandGithub, IconRefresh } from "@tabler/icons-react";
 import type { GithubChangesProps } from "@/types/manual";
+import { notifyError } from "@/lib/notifications";
 
 export default function GitChangesButton({
   onOpen,
@@ -27,7 +28,10 @@ export default function GitChangesButton({
       onOpen({ statuses: statuses ?? [], repos: paths });
     } catch (e: any) {
       console.error(e);
-      alert(e?.message ?? String(e));
+      notifyError({
+        title: "No se pudieron cargar los cambios",
+        message: e?.message ?? String(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -40,6 +44,12 @@ export default function GitChangesButton({
       const statuses = await window.ipc.scan(repos);
       console.log(statuses);
       onOpen({ statuses: statuses ?? [], repos });
+    } catch (e: any) {
+      console.error(e);
+      notifyError({
+        title: "No se pudieron actualizar los cambios",
+        message: e?.message ?? String(e),
+      });
     } finally {
       setBusy(false);
     }

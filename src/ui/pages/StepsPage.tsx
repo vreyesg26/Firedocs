@@ -22,6 +22,7 @@ import {
   IconChevronRight,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
+import { notifyError, notifySuccess } from "@/lib/notifications";
 import { Navigate, useNavigate } from "react-router-dom";
 import { getManualProgress } from "@/lib/manual-progress";
 import {
@@ -223,13 +224,22 @@ export default function StepsPage() {
     try {
       const saved = await saveCurrentDraft();
       if (saved?.id) {
-        alert("Borrador guardado correctamente.");
+        notifySuccess({
+          title: "Borrador guardado",
+          message: "El borrador se guardo correctamente.",
+        });
       } else {
-        alert("No se pudo guardar el borrador.");
+        notifyError({
+          title: "No se pudo guardar",
+          message: "No fue posible guardar el borrador.",
+        });
       }
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      alert(msg);
+      notifyError({
+        title: "No se pudo guardar",
+        message: msg,
+      });
     } finally {
       setDraftSaving(false);
     }

@@ -25,6 +25,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
+import { notifyError } from "@/lib/notifications";
 import { mainColor } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
@@ -158,7 +159,10 @@ export default function TemplatesPage() {
     try {
       const ok = await window.ipc.templateDelete(templateId);
       if (!ok) {
-        alert("No se pudo eliminar la plantilla.");
+        notifyError({
+          title: "No se pudo eliminar la plantilla",
+          message: "Intenta nuevamente.",
+        });
         return;
       }
 
@@ -176,7 +180,10 @@ export default function TemplatesPage() {
     const data = await window.ipc.templateRead(selected.id);
     const bytes = bytesFromUnknown(data?.bytes);
     if (!bytes) {
-      alert("No se pudo leer la plantilla seleccionada.");
+      notifyError({
+        title: "No se pudo leer la plantilla",
+        message: "La plantilla seleccionada no contiene un archivo valido.",
+      });
       return;
     }
 

@@ -24,6 +24,7 @@ import {
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
+import { notifyError } from "@/lib/notifications";
 import { mainColor } from "@/lib/utils";
 import { getManualProgress, type ManualProgressState } from "@/lib/manual-progress";
 
@@ -102,7 +103,10 @@ export default function DraftsPage() {
     try {
       const ok = await loadDraftById(id);
       if (!ok) {
-        alert("No se pudo cargar el borrador.");
+        notifyError({
+          title: "No se pudo cargar el borrador",
+          message: "Intenta nuevamente.",
+        });
         return;
       }
       navigate("/import");
@@ -125,7 +129,10 @@ export default function DraftsPage() {
     if (!draftToDelete) return;
     const ok = await deleteDraftById(draftToDelete.id);
     if (!ok) {
-      alert("No se pudo eliminar el borrador.");
+      notifyError({
+        title: "No se pudo eliminar el borrador",
+        message: "Intenta nuevamente.",
+      });
       return;
     }
     handleCloseDeleteModal();

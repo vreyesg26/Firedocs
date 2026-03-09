@@ -12,6 +12,7 @@ import type {
 } from "@/types/manual";
 import type { RepoStatus } from "@/types/git";
 import { countryOptions, getDefaultVisibleStepKeys } from "@/lib/constants";
+import { notifyError, notifySuccess, notifyWarning } from "@/lib/notifications";
 
 function b64ToUint8(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -513,9 +514,11 @@ export function useManualManager() {
       const selected = await window.ipc.selectMultipleDocx();
       if (!selected?.length) return false;
       if (selected.length < 2) {
-        alert(
-          "Se deben cargar minimo 2 manuales para poder utilizar esta caracteristica del sistema.",
-        );
+        notifyWarning({
+          title: "Union no disponible",
+          message:
+            "Se deben cargar minimo 2 manuales para poder utilizar esta caracteristica del sistema.",
+        });
         return false;
       }
 
@@ -535,9 +538,11 @@ export function useManualManager() {
       );
 
       if (hasDifferentInformationGeneral) {
-        alert(
-          "Los manuales deben ser de la misma iniciativa o proyecto y tener la misma informacion general.",
-        );
+        notifyWarning({
+          title: "No se pudieron unir",
+          message:
+            "Los manuales deben ser de la misma iniciativa o proyecto y tener la misma informacion general.",
+        });
         return false;
       }
 
@@ -622,7 +627,10 @@ export function useManualManager() {
       setLastSavedDraftContentSnapshot(null);
       return true;
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notifyError({
+        title: "No se pudieron unir los manuales",
+        message: e instanceof Error ? e.message : String(e),
+      });
       return false;
     }
   }
@@ -646,7 +654,10 @@ export function useManualManager() {
 
       return true;
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : String(e));
+      notifyError({
+        title: "No se pudo abrir el archivo",
+        message: e instanceof Error ? e.message : String(e),
+      });
       return false;
     }
   }
@@ -674,6 +685,10 @@ export function useManualManager() {
       previousStepsHtml,
     );
     await window.ipc.saveDocx(out, toSafeDocxFileName(manualTitle));
+    notifySuccess({
+      title: "Manual exportado",
+      message: "El manual se exporto correctamente.",
+    });
   }
 
   async function buildCurrentManualDocx() {
