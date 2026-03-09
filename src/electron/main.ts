@@ -613,25 +613,42 @@ async function scanReposByCommit(
       const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: GIT_BINARY });
       await git.revparse([`${commitRef}^{commit}`]);
 
-      const branchRaw = await git.raw([
-        "branch",
-        "--contains",
-        commitRef,
-        "--format=%(refname:short)",
-      ]);
-      const branch =
-        branchRaw
+      let branch: string | undefined;
+      try {
+        const branchRaw = await git.raw([
+          "branch",
+          "--all",
+          "--contains",
+          commitRef,
+        ]);
+        branch = branchRaw
           .split(/\r?\n/)
-          .map((line) => line.trim())
-          .find(Boolean) || undefined;
+          .map((line) => line.replace(/^\*/, "").trim())
+          .map((line) => line.replace(/^remotes\//, ""))
+          .find(Boolean);
+      } catch {
+        branch = undefined;
+      }
 
-      const showRaw = await git.raw([
-        "show",
+      let showRaw = await git.raw([
+        "diff-tree",
+        "--no-commit-id",
         "--name-status",
-        "--pretty=format:",
-        "--no-renames",
+        "-r",
+        "--root",
         commitRef,
       ]);
+
+      if (!showRaw.trim()) {
+        showRaw = await git.raw([
+          "show",
+          "--name-status",
+          "--pretty=format:",
+          "--no-renames",
+          commitRef,
+        ]);
+      }
+
       const commitDateRaw = await git.raw([
         "show",
         "-s",
@@ -677,7 +694,8 @@ async function scanReposByCommit(
         behind: 0,
         changes,
       });
-    } catch {
+    } catch (error) {
+      console.warn("[GIT] scan-commit error en", repoPath, commitRef, error);
       // Ignoramos repos donde el commit no existe o no se puede leer.
     }
   }
