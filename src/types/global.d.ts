@@ -57,7 +57,8 @@ declare global {
       scanCommit(
         repoPaths: string[],
         commitId: string,
-      ): Promise<import("./git").RepoStatus[]>;
+      ): Promise<import("./git").GitScanCommitResult>;
+      getAppLogPath(): Promise<string>;
       gitLastModified(
         repoPath: string,
         filePaths: string[],

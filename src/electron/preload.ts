@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("ipc", {
   scan: (repoPaths: string[]) => ipcRenderer.invoke("git:scan", repoPaths),
   scanCommit: (repoPaths: string[], commitId: string) =>
     ipcRenderer.invoke("git:scan-commit", { repoPaths, commitId }),
+  getAppLogPath: () => ipcRenderer.invoke("app:get-log-path"),
   gitLastModified: (repoPath: string, filePaths: string[]) =>
     ipcRenderer.invoke("git:last-modified", { repoPath, filePaths }),
   scanDiscovered: () => ipcRenderer.invoke("git:scan-discovered"),

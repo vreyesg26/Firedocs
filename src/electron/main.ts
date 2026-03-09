@@ -18,6 +18,27 @@ const isDev =
   !!process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === "development";
 const APP_NAME = "Firedocs";
 
+function appLogsDir() {
+  if (app.isPackaged) {
+    return path.join(app.getPath("userData"), "logs");
+  }
+  return path.join(process.cwd(), "logs");
+}
+
+function appLogPath() {
+  return path.join(appLogsDir(), "main.log");
+}
+
+async function appendAppLog(level: "INFO" | "WARN" | "ERROR", message: string) {
+  try {
+    await fsp.mkdir(appLogsDir(), { recursive: true });
+    const timestamp = new Date().toISOString();
+    await fsp.appendFile(appLogPath(), `[${timestamp}] [${level}] ${message}\n`, "utf8");
+  } catch (error) {
+    console.error("[LOG] no se pudo escribir log", error);
+  }
+}
+
 function buildWindowTitle(section?: string) {
   const suffix = (section ?? "").trim();
   return suffix ? `${APP_NAME} | ${suffix}` : APP_NAME;
@@ -416,6 +437,7 @@ function createWindow() {
 
 function registerAppIpcHandlers() {
   ipcMain.removeHandler("app:set-title");
+  ipcMain.removeHandler("app:get-log-path");
 
   ipcMain.handle("app:set-title", (event, section?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -423,6 +445,8 @@ function registerAppIpcHandlers() {
     win.setTitle(buildWindowTitle(section));
     return true;
   });
+
+  ipcMain.handle("app:get-log-path", () => appLogPath());
 }
 
 // -------------------- Descubrimiento & Scan de repos (AUTOMÁTICO) --------------------
@@ -546,6 +570,18 @@ type RepoStatus = {
   changes: RepoChange[];
 };
 
+type GitScanCommitFailure = {
+  repoPath: string;
+  repoName: string;
+  reason: string;
+};
+
+type GitScanCommitResult = {
+  statuses: RepoStatus[];
+  failures: GitScanCommitFailure[];
+  logPath?: string;
+};
+
 function kindFromXY(X: string, Y: string): RepoChange["kind"] {
   if (X === "A" || Y === "A") return "added";
   if (X === "D" || Y === "D") return "deleted";
@@ -603,12 +639,20 @@ async function scanReposSimple(repoPaths: string[]): Promise<RepoStatus[]> {
 async function scanReposByCommit(
   repoPaths: string[],
   commitId: string,
-): Promise<RepoStatus[]> {
+): Promise<GitScanCommitResult> {
   const commitRef = commitId.trim();
-  if (!commitRef) return [];
+  if (!commitRef) {
+    return {
+      statuses: [],
+      failures: [],
+      logPath: appLogPath(),
+    };
+  }
 
   const out: RepoStatus[] = [];
+  const failures: GitScanCommitFailure[] = [];
   for (const repoPath of repoPaths) {
+    const repoName = path.basename(repoPath);
     try {
       const git: SimpleGit = simpleGit({ baseDir: repoPath, binary: GIT_BINARY });
       await git.revparse([`${commitRef}^{commit}`]);
@@ -688,19 +732,32 @@ async function scanReposByCommit(
 
       out.push({
         repoPath,
-        repoName: path.basename(repoPath),
+        repoName,
         branch,
         ahead: 0,
         behind: 0,
         changes,
       });
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.warn("[GIT] scan-commit error en", repoPath, commitRef, error);
-      // Ignoramos repos donde el commit no existe o no se puede leer.
+      await appendAppLog(
+        "WARN",
+        `scan-commit repo="${repoPath}" repoName="${repoName}" commit="${commitRef}" binary="${GIT_BINARY}" error="${message.replace(/\s+/g, " ").trim()}"`
+      );
+      failures.push({
+        repoPath,
+        repoName,
+        reason: `No se pudo leer el commit ${commitRef} en ${repoName}: ${message}`,
+      });
     }
   }
 
-  return out;
+  return {
+    statuses: out,
+    failures,
+    logPath: appLogPath(),
+  };
 }
 
 async function lastModifiedByPath(

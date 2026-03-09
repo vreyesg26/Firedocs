@@ -24,3 +24,15 @@ export type RepoStatus = {
   behind?: number;
   changes: RepoChange[];
 };
+
+export type GitScanCommitFailure = {
+  repoPath: string;
+  repoName: string;
+  reason: string;
+};
+
+export type GitScanCommitResult = {
+  statuses: RepoStatus[];
+  failures: GitScanCommitFailure[];
+  logPath?: string;
+};

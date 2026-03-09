@@ -365,17 +365,22 @@ export function PiecesTablesStep({
         return;
       }
 
-      const statuses = await window.ipc.scanCommit(
+      const result = await window.ipc.scanCommit(
         [commitRepo.repoPath],
         commitRef,
       );
+      const statuses = result?.statuses ?? [];
       const reposWithChanges = (statuses ?? []).filter(
         (status) => (status?.changes?.length ?? 0) > 0,
       );
 
       if (!reposWithChanges.length) {
+        const failureMessage = result?.failures?.[0]?.reason;
+        const logPath = result?.logPath?.trim();
         setCommitError(
-          "No se encontraron archivos para ese commit en los repositorios seleccionados.",
+          failureMessage
+            ? `${failureMessage}${logPath ? ` Revisa el log en: ${logPath}` : ""}`
+            : "No se encontraron archivos para ese commit en los repositorios seleccionados",
         );
         return;
       }
