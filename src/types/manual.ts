@@ -29,10 +29,13 @@ export interface PiezasItem {
   estado: "Nuevo" | "Modificado" | string;
   identificador?: "Hotfix" | "Bugfix" | "Incidencia" | string;
   fechaHoraModificacion?: string;
+  sourcePath?: string;
 }
 export interface PiezasGrupo {
   grupo: string;
   items: PiezasItem[];
+  sourceRepository?: string;
+  sourceBranch?: string;
 }
 
 export interface BackupHeaderOneRow {
@@ -58,6 +61,36 @@ export interface BackupTableGroup {
   headerThree: BackupHeaderThreeRow;
 }
 
+export interface InstallationHeaderOneRow {
+  implementingTeam: string;
+  integrationBranch: string;
+  repository: string;
+}
+
+export interface InstallationProcedureRow {
+  step: string;
+  objectToInstall: string;
+  versionerPath: string;
+}
+
+export interface InstallationHeaderThreeRow {
+  databaseOrDirectory: string;
+  server: string;
+}
+
+export interface InstallationHeaderFourRow {
+  applicationToImplement: string;
+  additionalComments: string;
+}
+
+export interface InstallationTableGroup {
+  title: string;
+  headerOne: InstallationHeaderOneRow;
+  procedureRows: InstallationProcedureRow[];
+  headerThree: InstallationHeaderThreeRow;
+  headerFour: InstallationHeaderFourRow;
+}
+
 export interface CommunicationMatrixRow {
   country: string;
   developerName: string;
@@ -79,6 +112,11 @@ export interface ManualExtract {
   piezasDetalladas: PiezasGrupo[];
   detailedFixPieces?: PiezasGrupo[];
   backupTables?: BackupTableGroup[];
+  backupFixTables?: BackupTableGroup[];
+  installationTables?: InstallationTableGroup[];
+  reversionTables?: InstallationTableGroup[];
+  installationFixTables?: InstallationTableGroup[];
+  reversionFixTables?: InstallationTableGroup[];
   servicesProducts?: string[];
   affectedAreas?: string[];
   repositoryNames?: string[];
@@ -109,7 +147,7 @@ export interface RepoChanges {
   files: GitFileChange[];
 }
 
-export type FeatureKey = "existing" | "import";
+export type FeatureKey = "existing" | "import" | "union";
 
 export interface HomeFeatureProps {
   key: FeatureKey;

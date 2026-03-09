@@ -6,8 +6,11 @@ contextBridge.exposeInMainWorld("ipc", {
 
   // DOCX (lo que ya tenías)
   selectDocx: () => ipcRenderer.invoke("select-docx"),
+  selectMultipleDocx: () => ipcRenderer.invoke("select-multiple-docx"),
   saveDocx: (bytes: Uint8Array, defaultName?: string) =>
     ipcRenderer.invoke("save-docx", { bytes, defaultName }),
+  previewDocxPdf: (bytes: Uint8Array, fileName?: string) =>
+    ipcRenderer.invoke("docx:preview-pdf", { bytes, fileName }),
 
   // (si usas estos en otro lado, los dejamos)
   pickRepos: () => ipcRenderer.invoke("git:pick-repos"),
@@ -53,11 +56,12 @@ contextBridge.exposeInMainWorld("ipc", {
   draftSave: (payload: {
     id?: string;
     name?: string;
-    state: {
-      manualTitle: string;
-      activeStep: number;
-      data: unknown;
-      sections: unknown;
+        state: {
+          manualTitle: string;
+          activeStep: number;
+          visibleStepKeys?: string[];
+          data: unknown;
+          sections: unknown;
       detailedPieces: unknown;
       detailedFixPieces?: unknown;
       templateBytesBase64: string | null;

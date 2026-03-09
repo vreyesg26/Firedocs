@@ -50,6 +50,7 @@ const EMPTY_HEADER_THREE: BackupHeaderThreeRow = {
 };
 
 type ModalMode = "create" | "edit";
+type BackupTablesVariant = "standard" | "fixes";
 
 const centeredTextInputStyles = {
   input: {
@@ -60,22 +61,59 @@ const centeredTextInputStyles = {
 const centeredTextareaStyles = {
   input: {
     textAlign: "center" as const,
-    paddingTop: "calc(var(--mantine-spacing-xl) - 2px)",
-    paddingBottom: "calc(var(--mantine-spacing-xl) - 2px)",
+    paddingTop: "calc(var(--mantine-spacing-sm) + 2px)",
+    paddingBottom: "calc(var(--mantine-spacing-sm) + 2px)",
   },
 };
 
-export function BackupTablesStep() {
-  const { backupTables, setBackupTables } = useManual() as {
+function buildSequentialBackupTitles(groups: BackupTableGroup[]) {
+  return groups.map((group, index) => ({
+    ...group,
+    title: `Tabla ${index + 1}`,
+  }));
+}
+
+function getTableLabel(group: BackupTableGroup, fallbackIndex: number) {
+  return group.title?.trim() || `Tabla ${fallbackIndex + 1}`;
+}
+
+function getTableNumber(group: BackupTableGroup, fallbackIndex: number) {
+  const match = getTableLabel(group, fallbackIndex).match(/(\d+)$/);
+  return match?.[1] ?? String(fallbackIndex + 1);
+}
+
+export function BackupTablesStep({
+  variant = "standard",
+}: {
+  variant?: BackupTablesVariant;
+}) {
+  const manual = useManual() as {
     backupTables?: BackupTableGroup[];
+    backupFixTables?: BackupTableGroup[];
     setBackupTables: (
+      value:
+        | BackupTableGroup[]
+        | ((prev: BackupTableGroup[]) => BackupTableGroup[]),
+    ) => void;
+    setBackupFixTables: (
       value:
         | BackupTableGroup[]
         | ((prev: BackupTableGroup[]) => BackupTableGroup[]),
     ) => void;
   };
 
-  const groups = backupTables ?? [];
+  const groups =
+    variant === "fixes"
+      ? manual.backupFixTables ?? []
+      : manual.backupTables ?? [];
+  const setGroups =
+    variant === "fixes" ? manual.setBackupFixTables : manual.setBackupTables;
+  const sectionTitle =
+    variant === "fixes" ? "Respaldo de objetos - Fixes" : "Respaldo de objetos";
+  const emptyStateText =
+    variant === "fixes"
+      ? "Las tablas de respaldo de fixes se mostrarán aquí"
+      : "Las tablas de respaldo se mostrarán aquí";
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -158,8 +196,10 @@ export function BackupTablesStep() {
   function handleConfirmDelete() {
     if (groupToDeleteIndex === null) return;
 
-    setBackupTables((prev) =>
-      prev.filter((_, index) => index !== groupToDeleteIndex),
+    setGroups((prev) =>
+      buildSequentialBackupTitles(
+        prev.filter((_, index) => index !== groupToDeleteIndex),
+      ),
     );
     handleCloseDeleteModal();
   }
@@ -179,7 +219,7 @@ export function BackupTablesStep() {
   }
 
   function handleApplyOrder() {
-    setBackupTables(orderDraft);
+    setGroups(buildSequentialBackupTitles(orderDraft));
     handleCloseOrderModal();
   }
 
@@ -265,12 +305,12 @@ export function BackupTablesStep() {
     };
 
     if (modalMode === "edit" && editingIndex !== null) {
-      setBackupTables((prev) =>
+      setGroups((prev) =>
         prev.map((group, index) => (index === editingIndex ? nextGroup : group)),
       );
     } else {
       setScrollToLastGroup(true);
-      setBackupTables((prev) => [...prev, nextGroup]);
+      setGroups((prev) => [...prev, nextGroup]);
     }
 
     handleCloseModal();
@@ -282,7 +322,7 @@ export function BackupTablesStep() {
   return (
     <>
       <Flex align="center" justify="space-between">
-        <Title order={2}>Respaldo de objetos</Title>
+        <Title order={2}>{sectionTitle}</Title>
         <Flex align="center" gap="xs">
           {groups.length > 1 && (
             <Button
@@ -315,7 +355,7 @@ export function BackupTablesStep() {
           style={{ width: "100%" }}
         >
           <Text c="dimmed" ta="center" size="md">
-            Las tablas de respaldo se mostrarán aquí
+            {emptyStateText}
           </Text>
         </Flex>
       ) : (
@@ -335,9 +375,9 @@ export function BackupTablesStep() {
                   <Flex gap="xs" align="center" justify="space-between">
                     <Flex gap="xs" align="center" style={{ minWidth: 0 }}>
                       <ThemeIcon radius="sm" color={mainColor}>
-                        <Text fw={700}>{index + 1}</Text>
+                        <Text fw={700}>{getTableNumber(group, index)}</Text>
                       </ThemeIcon>
-                      <Text truncate>{`Tabla ${index + 1}`}</Text>
+                      <Text truncate>{getTableLabel(group, index)}</Text>
                     </Flex>
                     <Flex gap="xs" align="center">
                       <ActionIcon
@@ -627,7 +667,7 @@ export function BackupTablesStep() {
                       <Textarea
                         label="Paso"
                         autosize
-                        minRows={3}
+                        minRows={2}
                         value={row.step}
                         onChange={(event) =>
                           handleProcedureRowChange(
@@ -646,7 +686,7 @@ export function BackupTablesStep() {
                       <Textarea
                         label="Objeto a respaldar"
                         autosize
-                        minRows={3}
+                        minRows={2}
                         value={row.objectToBackup}
                         onChange={(event) =>
                           handleProcedureRowChange(
@@ -671,8 +711,10 @@ export function BackupTablesStep() {
 
           <Stack gap="xs">
             <SimpleGrid cols={{ base: 1, sm: 2 }}>
-              <TextInput
+              <Textarea
                 label="Servidor (Nombre, IP)"
+                autosize
+                minRows={2}
                 value={headerThree.server}
                 onChange={(event) =>
                   handleHeaderThreeChange("server", event.currentTarget.value)
@@ -682,10 +724,12 @@ export function BackupTablesStep() {
                     ? "Campo requerido"
                     : undefined
                 }
-                styles={centeredTextInputStyles}
+                styles={centeredTextareaStyles}
               />
-              <TextInput
+              <Textarea
                 label="Comentarios adicionales"
+                autosize
+                minRows={2}
                 value={headerThree.additionalComments}
                 onChange={(event) =>
                   handleHeaderThreeChange(
@@ -698,7 +742,7 @@ export function BackupTablesStep() {
                     ? "Campo requerido"
                     : undefined
                 }
-                styles={centeredTextInputStyles}
+                styles={centeredTextareaStyles}
               />
             </SimpleGrid>
           </Stack>
@@ -753,9 +797,9 @@ export function BackupTablesStep() {
               <Flex align="center" justify="space-between" gap="sm">
                 <Flex align="center" gap="xs" style={{ minWidth: 0 }}>
                   <ThemeIcon radius="sm" color={mainColor}>
-                    <Text fw={700}>{index + 1}</Text>
+                    <Text fw={700}>{getTableNumber(group, index)}</Text>
                   </ThemeIcon>
-                  <Text truncate>{`Tabla ${index + 1}`}</Text>
+                  <Text truncate>{getTableLabel(group, index)}</Text>
                 </Flex>
                 <Flex gap="xs">
                   <ActionIcon

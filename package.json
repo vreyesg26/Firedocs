@@ -44,9 +44,11 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.539.0",
     "os-utils": "^0.0.14",
+    "pdfjs-dist": "^5.5.207",
     "pizzip": "^3.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-pdf": "^10.4.1",
     "react-router-dom": "^7.8.1",
     "simple-git": "^3.28.0",
     "tailwind-merge": "^3.3.1"

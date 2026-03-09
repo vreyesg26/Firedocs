@@ -61,6 +61,7 @@ type ManualRow = {
   tipoLocked: boolean;
   identificador: "Hotfix" | "Bugfix" | "Incidencia";
   fechaHoraModificacion: string;
+  sourcePath: string;
 };
 
 const EMPTY_ROW: ManualRow = {
@@ -70,6 +71,7 @@ const EMPTY_ROW: ManualRow = {
   tipoLocked: false,
   identificador: "Hotfix",
   fechaHoraModificacion: "",
+  sourcePath: "",
 };
 
 function isRowEffectivelyEmpty(row: ManualRow) {
@@ -97,6 +99,7 @@ function mapChangeToStandardItem(ch: RepoChange): PiezasItem {
     nombre: name,
     tipo,
     estado: mapEstadoFromChange(ch),
+    sourcePath: ch.path,
   };
 }
 
@@ -130,6 +133,7 @@ function mapItemToManualRow(
       variant === "fixes"
         ? toDateTimeInputValue(item.fechaHoraModificacion ?? "")
         : "",
+    sourcePath: item.sourcePath ?? "",
   };
 }
 
@@ -143,6 +147,10 @@ function toGroupsData(
       tipo: row.tipo.trim(),
       estado: row.estado,
     };
+
+    if (row.sourcePath.trim()) {
+      base.sourcePath = row.sourcePath.trim();
+    }
 
     if (variant === "fixes") {
       base.identificador = row.identificador;
@@ -1184,6 +1192,8 @@ export function PiecesTablesStep({
           const newGroup: PiezasGrupo = {
             grupo: groupName || repo.repoName || `Grupo ${groups.length + 1}`,
             items,
+            sourceRepository: repo.repoName || "",
+            sourceBranch: repo.branch || "",
           };
 
           setScrollToLastGroup(true);

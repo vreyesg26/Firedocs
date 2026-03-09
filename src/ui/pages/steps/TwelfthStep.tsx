@@ -1,10 +1,5 @@
-import { Divider, Title } from "@mantine/core";
+import { InstallationTablesStep } from "./InstallationTablesStep";
 
 export const TwelfthStep = () => {
-  return (
-    <>
-      <Title order={2}>Pasos requeridos para la reversión - Fixes</Title>
-      <Divider my="xs" />
-    </>
-  );
+  return <InstallationTablesStep mode="reversion-fix" />;
 };

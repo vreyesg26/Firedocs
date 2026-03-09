@@ -64,7 +64,7 @@ function normalizeRepositoryOptionValue(repositoryName: string) {
 }
 
 function normalizeRepositoryValue(value: string) {
-  return value.trim();
+  return normalizeRepositoryOptionValue(value);
 }
 
 function parseRepositoryInput(value: string) {
@@ -131,7 +131,6 @@ export const FifthStep = () => {
 
   const repositoryInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const matrixRepositoryInputRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const previousInferredRepositoriesRef = useRef<string[]>([]);
   const [pendingRepositoryFocus, setPendingRepositoryFocus] = useState<
     number | null
   >(null);
@@ -159,7 +158,7 @@ export const FifthStep = () => {
 
   const inferredRepositories = useMemo(() => {
     const names = (detailedPieces ?? [])
-      .map((group) => (group?.grupo ?? "").trim())
+      .map((group) => normalizeRepositoryOptionValue(group?.grupo ?? ""))
       .filter((value) => value.length > 0);
     return Array.from(new Set(names));
   }, [detailedPieces]);
@@ -168,28 +167,10 @@ export const FifthStep = () => {
     const cleanedCurrent = (repositoryNamesRaw ?? [])
       .map((value) => value.trim())
       .filter((value) => value.length > 0);
-    const previousInferred = previousInferredRepositoriesRef.current;
-    const previousInferredSet = new Set(
-      previousInferred.map((value) => value.toLowerCase()),
-    );
-    const inferredSet = new Set(
-      inferredRepositories.map((value) => value.toLowerCase()),
-    );
 
-    // Preserva entradas manuales, pero mantiene sincronizados los repos
-    // que vienen de títulos de tablas en Step 2 (agregar y eliminar).
-    const manualEntries = cleanedCurrent.filter(
-      (value) =>
-        !previousInferredSet.has(value.toLowerCase()) &&
-        !inferredSet.has(value.toLowerCase()),
-    );
-    const next = [...inferredRepositories, ...manualEntries];
-
-    if (!sameStringList(cleanedCurrent, next)) {
-      setRepositoryNames(next);
+    if (!sameStringList(cleanedCurrent, inferredRepositories)) {
+      setRepositoryNames(inferredRepositories);
     }
-
-    previousInferredRepositoriesRef.current = inferredRepositories;
   }, [inferredRepositories, repositoryNamesRaw, setRepositoryNames]);
 
   useEffect(() => {

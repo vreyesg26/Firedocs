@@ -25,7 +25,23 @@ declare global {
 
       // DOCX
       selectDocx(): Promise<any>;
+      selectMultipleDocx(): Promise<any>;
       saveDocx(bytes: Uint8Array, defaultName?: string): Promise<void>;
+      previewDocxPdf(
+        bytes: Uint8Array,
+        fileName?: string,
+      ): Promise<
+        | {
+            fileName: string;
+            bytes: Uint8Array;
+            mimeType: string;
+          }
+        | {
+            fileName: string;
+            error: string;
+          }
+        | null
+      >;
 
       // (opcionales, si los usas)
       pickRepos(): Promise<any>;
@@ -111,6 +127,8 @@ declare global {
           updatedAt: string;
           size?: number;
           activeStep?: number;
+          visibleStepKeys?: string[];
+          progressState?: unknown;
         }>
       >;
       draftSave(payload: {
@@ -119,6 +137,7 @@ declare global {
         state: {
           manualTitle: string;
           activeStep: number;
+          visibleStepKeys?: string[];
           data: unknown;
           sections: unknown;
           detailedPieces: unknown;
@@ -145,6 +164,7 @@ declare global {
             state: {
               manualTitle: string;
               activeStep: number;
+              visibleStepKeys?: string[];
               data: unknown;
               sections: unknown;
               detailedPieces: unknown;

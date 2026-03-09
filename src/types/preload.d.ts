@@ -4,6 +4,9 @@ declare global {
     ipc: {
       setWindowTitle: (section?: string) => Promise<boolean>;
       selectDocx: () => Promise<{ filePath: string; bytes: Uint8Array } | null>;
+      selectMultipleDocx: () => Promise<
+        Array<{ filePath: string; bytes: Uint8Array }> | null
+      >;
       pickRepos: () => Promise<{ repoName: string; repoPath: string }[]>;
       listChanges: (
         repos: { repoPath: string; repoName?: string }[],
@@ -13,6 +16,21 @@ declare global {
         bytes: Uint8Array,
         defaultName?: string
       ) => Promise<{ saved: boolean; filePath: string } | null>;
+      previewDocxPdf: (
+        bytes: Uint8Array,
+        fileName?: string
+      ) => Promise<
+        | {
+            fileName: string;
+            bytes: Uint8Array;
+            mimeType: string;
+          }
+        | {
+            fileName: string;
+            error: string;
+          }
+        | null
+      >;
       chooseRoots: () => Promise<string[]>;
       discover: (roots?: string[]) => Promise<string[]>;
       scan: (repoPaths: string[]) => Promise<import("@/types/git").RepoStatus[]>;
@@ -87,6 +105,8 @@ declare global {
           updatedAt: string;
           size?: number;
           activeStep?: number;
+          visibleStepKeys?: string[];
+          progressState?: unknown;
         }>
       >;
       draftSave: (payload: {
@@ -95,6 +115,7 @@ declare global {
         state: {
           manualTitle: string;
           activeStep: number;
+          visibleStepKeys?: string[];
           data: unknown;
           sections: unknown;
           detailedPieces: unknown;
@@ -121,6 +142,7 @@ declare global {
             state: {
               manualTitle: string;
               activeStep: number;
+              visibleStepKeys?: string[];
               data: unknown;
               sections: unknown;
               detailedPieces: unknown;

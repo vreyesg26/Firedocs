@@ -10,6 +10,8 @@ import type {
   CommunicationMatrixRow,
   PiezasGrupo,
   UISection,
+  BackupTableGroup,
+  InstallationTableGroup,
 } from "@/types/manual";
 
 /* ============================== Namespaces ============================== */
@@ -63,7 +65,12 @@ function setCellTextKeepParagraph(
   tc: Node | null,
   text: string,
   doc: Document,
-  opts?: { bold?: boolean }
+  opts?: {
+    bold?: boolean;
+    italic?: boolean;
+    align?: "left" | "center" | "right";
+    verticalAlign?: "top" | "center" | "bottom";
+  }
 ) {
   if (!tc) return;
 
@@ -73,29 +80,77 @@ function setCellTextKeepParagraph(
     p = (tc as Element).appendChild(doc.createElementNS(W_NS, "w:p"));
   }
 
-  let r = xpNode("./w:r[1]", p);
-  if (!r) r = (p as Element).appendChild(doc.createElementNS(W_NS, "w:r"));
+  if (opts?.align) {
+    let pPr = xpNode("./w:pPr[1]", p);
+    if (!pPr) pPr = (p as Element).insertBefore(doc.createElementNS(W_NS, "w:pPr"), p.firstChild);
 
-  let t = xpNode("./w:t[1]", r);
-  if (!t) t = (r as Element).appendChild(doc.createElementNS(W_NS, "w:t"));
-
-  if (opts?.bold) {
-    let rPr = xpNode("./w:rPr[1]", r);
-    if (!rPr) rPr = (r as Element).appendChild(doc.createElementNS(W_NS, "w:rPr"));
-
-    let b = xpNode("./w:b[1]", rPr);
-    if (!b) b = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:b"));
-    (b as Element).setAttributeNS(W_NS, "w:val", "1");
-
-    let bCs = xpNode("./w:bCs[1]", rPr);
-    if (!bCs) bCs = (rPr as Element).appendChild(doc.createElementNS(W_NS, "w:bCs"));
-    (bCs as Element).setAttributeNS(W_NS, "w:val", "1");
+    let jc = xpNode("./w:jc[1]", pPr);
+    if (!jc) jc = (pPr as Element).appendChild(doc.createElementNS(W_NS, "w:jc"));
+    (jc as Element).setAttributeNS(W_NS, "w:val", opts.align);
   }
 
-  (t as Element).textContent = text;
-  try {
-    (t as Element).setAttribute("xml:space", "preserve");
-  } catch {}
+  if (opts?.verticalAlign) {
+    let tcPr = xpNode("./w:tcPr[1]", tc);
+    if (!tcPr) tcPr = (tc as Element).insertBefore(doc.createElementNS(W_NS, "w:tcPr"), tc.firstChild);
+
+    let vAlign = xpNode("./w:vAlign[1]", tcPr);
+    if (!vAlign) {
+      vAlign = (tcPr as Element).appendChild(doc.createElementNS(W_NS, "w:vAlign"));
+    }
+    (vAlign as Element).setAttributeNS(W_NS, "w:val", opts.verticalAlign);
+  }
+
+  for (const child of Array.from(p.childNodes)) {
+    if (child.nodeType === 1 && (child as Element).localName === "pPr") continue;
+    p.removeChild(child);
+  }
+
+  const lines = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const run = doc.createElementNS(W_NS, "w:r");
+
+    if (opts?.bold || opts?.italic) {
+      const rPr = doc.createElementNS(W_NS, "w:rPr");
+
+      if (opts.bold) {
+        const b = doc.createElementNS(W_NS, "w:b");
+        b.setAttributeNS(W_NS, "w:val", "1");
+        rPr.appendChild(b);
+
+        const bCs = doc.createElementNS(W_NS, "w:bCs");
+        bCs.setAttributeNS(W_NS, "w:val", "1");
+        rPr.appendChild(bCs);
+      }
+
+      if (opts.italic) {
+        const italic = doc.createElementNS(W_NS, "w:i");
+        italic.setAttributeNS(W_NS, "w:val", "1");
+        rPr.appendChild(italic);
+
+        const italicCs = doc.createElementNS(W_NS, "w:iCs");
+        italicCs.setAttributeNS(W_NS, "w:val", "1");
+        rPr.appendChild(italicCs);
+      }
+
+      run.appendChild(rPr);
+    }
+
+    const textNode = doc.createElementNS(W_NS, "w:t");
+    textNode.textContent = lines[i] || "";
+    try {
+      textNode.setAttribute("xml:space", "preserve");
+    } catch {}
+    run.appendChild(textNode);
+    p.appendChild(run);
+
+    if (i < lines.length - 1) {
+      const breakRun = doc.createElementNS(W_NS, "w:r");
+      const lineBreak = doc.createElementNS(W_NS, "w:br");
+      breakRun.appendChild(lineBreak);
+      p.appendChild(breakRun);
+    }
+  }
 }
 
 function setParagraphTextKeepStyle(p: Node | null, text: string, doc: Document) {
@@ -119,8 +174,11 @@ function setParagraphTextKeepStyle(p: Node | null, text: string, doc: Document) 
 
 const PREVIOUS_STEPS_TITLE =
   "Requisitos y Trabajos que deben estar completados previo a la implementación del cambio";
-const PREVIOUS_STEPS_PLACEHOLDER =
-  "[Describa aquí las consideraciones y actividades que ya deben estar gestionadas y realizadas por los equipos correspondientes previo a la instalación del cambio]";
+const BACKUP_OBJECTS_TITLE = "Respaldo de Objetos";
+const INSTALLATION_STEPS_TITLE = "Pasos requeridos para la Instalación";
+const REVERSION_STEPS_TITLE = "Pasos requeridos para la reversión";
+const FIX_IMPLEMENTATION_TITLE =
+  "Pasos requeridos para la implementación de Bugfix / Hotfix";
 
 function normalizeKey(s: string) {
   return (s || "")
@@ -129,6 +187,15 @@ function normalizeKey(s: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function hasRealBranchValue(value: string) {
+  const normalized = normalizeKey(value);
+  return Boolean(normalized) && normalized !== "n/a";
+}
+
+function isDefaultNAValue(value: string) {
+  return normalizeKey(value) === "n/a";
 }
 
 function hasMeaningfulHtml(html: string | undefined) {
@@ -385,9 +452,31 @@ function findTableByRowLabel(root: Document, needle: string): Node | null {
 }
 
 function findParagraphByText(root: Document, containsText: string): Node | null {
+  const target = normalizeKey(containsText);
   const paragraphs = xpNodes("//w:p", root);
   for (const paragraph of paragraphs) {
-    if (getTextDeep(paragraph).includes(containsText)) return paragraph;
+    if (normalizeKey(getTextDeep(paragraph)).includes(target)) return paragraph;
+  }
+  return null;
+}
+
+function findParagraphByTextAfter(
+  afterParagraph: Node | null,
+  containsText: string,
+): Node | null {
+  if (!afterParagraph) return null;
+  const target = normalizeKey(containsText);
+
+  let cursor = afterParagraph.nextSibling;
+  while (cursor) {
+    if (
+      cursor.nodeType === 1 &&
+      (cursor as Element).localName === "p" &&
+      normalizeKey(getTextDeep(cursor)).includes(target)
+    ) {
+      return cursor;
+    }
+    cursor = cursor.nextSibling;
   }
   return null;
 }
@@ -1046,6 +1135,8 @@ function fillPreviousStepsSection(
   root: Document,
   previousStepsHtml: string,
 ) {
+  if (!hasMeaningfulHtml(previousStepsHtml)) return;
+
   const body = xpNode("/w:document/w:body", root);
   const startParagraph = findParagraphByText(root, PREVIOUS_STEPS_TITLE);
   const endParagraph = findParagraphByText(root, "Respaldo de Objetos");
@@ -1076,19 +1167,953 @@ function fillPreviousStepsSection(
   const fallbackParagraph =
     templateParagraph?.cloneNode(true) ?? doc.createElementNS(W_NS, "w:p");
 
-  const blocks = hasMeaningfulHtml(previousStepsHtml)
-    ? parseRichTextHtmlToBlocks(previousStepsHtml)
-    : [];
-
-  const finalBlocks =
-    blocks.length > 0
-      ? blocks
-      : [{ segments: [{ text: PREVIOUS_STEPS_PLACEHOLDER }] }];
+  const finalBlocks = parseRichTextHtmlToBlocks(previousStepsHtml);
 
   for (const block of finalBlocks) {
     const paragraph = fallbackParagraph.cloneNode(true);
     setParagraphFromRichTextBlock(paragraph, block, doc);
     body.insertBefore(paragraph, endParagraph);
+  }
+}
+
+function hasBackupHeaderOneText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("equipo encargado de respaldo") &&
+    normalized.includes("base de datos/directorio") &&
+    normalized.includes("aplicativo")
+  );
+}
+
+function hasBackupHeaderTwoText(text: string) {
+  const normalized = normalizeKey(text);
+  return normalized.includes("paso") && normalized.includes("objeto a respaldar");
+}
+
+function hasBackupHeaderThreeText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("servidor") &&
+    normalized.includes("nombre, ip") &&
+    normalized.includes("comentarios adicionales")
+  );
+}
+
+function findBackupTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const previousStepsParagraph = findParagraphByText(root, PREVIOUS_STEPS_TITLE);
+  if (!body || !previousStepsParagraph) return null;
+
+  const startParagraph = (() => {
+    let cursor = previousStepsParagraph.nextSibling;
+    while (cursor) {
+      if (
+        cursor.nodeType === 1 &&
+        (cursor as Element).localName === "p" &&
+        getTextDeep(cursor).includes(BACKUP_OBJECTS_TITLE)
+      ) {
+        return cursor;
+      }
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!startParagraph) return null;
+
+  const endParagraph = (() => {
+    let cursor = startParagraph.nextSibling;
+    while (cursor) {
+      if (
+        cursor.nodeType === 1 &&
+        (cursor as Element).localName === "p" &&
+        getTextDeep(cursor).includes(INSTALLATION_STEPS_TITLE)
+      ) {
+        return cursor;
+      }
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!endParagraph) return null;
+
+  return { body, startParagraph, endParagraph };
+}
+
+function findBackupTableAnchorsInRegion(startParagraph: Node, endParagraph: Node) {
+  const tables: Node[] = [];
+  let cursor = startParagraph.nextSibling;
+  while (cursor && cursor !== endParagraph) {
+    if (
+      cursor.nodeType === 1 &&
+      (cursor as Element).localName === "tbl" &&
+      hasBackupHeaderOneText(getTextDeep(cursor))
+    ) {
+      tables.push(cursor);
+    }
+    cursor = cursor.nextSibling;
+  }
+  return tables;
+}
+
+function mapBackupTableRows(table: Node) {
+  const rows = xpNodes("./w:tr", table);
+  const headerOneIndex = rows.findIndex((row) =>
+    hasBackupHeaderOneText(getTextDeep(row)),
+  );
+  const headerTwoIndex = rows.findIndex(
+    (row, index) => index > headerOneIndex && hasBackupHeaderTwoText(getTextDeep(row)),
+  );
+  const headerThreeIndex = rows.findIndex(
+    (row, index) => index > headerTwoIndex && hasBackupHeaderThreeText(getTextDeep(row)),
+  );
+
+  if (headerOneIndex === -1 || headerTwoIndex === -1 || headerThreeIndex === -1) {
+    return null;
+  }
+
+  return {
+    headerOneIndex,
+    headerTwoIndex,
+    headerThreeIndex,
+  };
+}
+
+function mapFixBackupTableRows(table: Node) {
+  const rows = xpNodes("./w:tr", table);
+  const headerOneIndex = rows.findIndex((row) =>
+    hasBackupHeaderOneText(getTextDeep(row)),
+  );
+  const headerTwoIndex = rows.findIndex(
+    (row, index) => index > headerOneIndex && hasBackupHeaderTwoText(getTextDeep(row)),
+  );
+  const headerThreeIndex = rows.findIndex(
+    (row, index) =>
+      index > headerTwoIndex &&
+      normalizeKey(getTextDeep(row)).includes("aplicativo a implementar") &&
+      normalizeKey(getTextDeep(row)).includes("comentarios adicionales"),
+  );
+
+  if (headerOneIndex === -1 || headerTwoIndex === -1 || headerThreeIndex === -1) {
+    return null;
+  }
+
+  return {
+    headerOneIndex,
+    headerTwoIndex,
+    headerThreeIndex,
+  };
+}
+
+function fillBackupTable(
+  doc: Document,
+  table: Node,
+  group: BackupTableGroup,
+) {
+  const rowMap = mapBackupTableRows(table);
+  if (!rowMap) return;
+
+  const rows = xpNodes("./w:tr", table);
+  const headerOneDataRow = rows[rowMap.headerOneIndex + 1] ?? null;
+  const headerThreeDataRows = adjustRowsAfterIndex(table, rowMap.headerThreeIndex + 1, 1);
+  const procedureRows = adjustRowsBeforeIndex(
+    table,
+    rowMap.headerTwoIndex + 1,
+    rowMap.headerThreeIndex,
+    Math.max(1, group.procedureRows.length),
+  );
+
+  if (headerOneDataRow) {
+    const cells = xpNodes("./w:tc", headerOneDataRow);
+    setCellTextKeepParagraph(
+      cells[0] ?? null,
+      group.headerOne.responsibleTeam ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerOne.databaseOrDirectory ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+    setCellTextKeepParagraph(
+      cells[2] ?? null,
+      group.headerOne.application ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+  }
+
+  for (let i = 0; i < procedureRows.length; i += 1) {
+    const item = group.procedureRows[i] ?? { step: "", objectToBackup: "" };
+    const cells = xpNodes("./w:tc", procedureRows[i]);
+    setCellTextKeepParagraph(cells[0] ?? null, item.step ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(cells[1] ?? null, item.objectToBackup ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    if (cells.length > 2) {
+      for (let j = 2; j < cells.length; j += 1) {
+        setCellTextKeepParagraph(cells[j], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+
+  const footerRow = headerThreeDataRows[0] ?? null;
+  if (footerRow) {
+    const cells = xpNodes("./w:tc", footerRow);
+    setCellTextKeepParagraph(cells[0] ?? null, group.headerThree.server ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerThree.additionalComments ?? "",
+      doc,
+      { align: "center", verticalAlign: "center" },
+    );
+    if (cells.length > 2) {
+      for (let j = 2; j < cells.length; j += 1) {
+        setCellTextKeepParagraph(cells[j], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+}
+
+function fillFixBackupTable(
+  doc: Document,
+  table: Node,
+  group: BackupTableGroup,
+) {
+  const rowMap = mapFixBackupTableRows(table);
+  if (!rowMap) return;
+
+  const rows = xpNodes("./w:tr", table);
+  const headerOneDataRow = rows[rowMap.headerOneIndex + 1] ?? null;
+  const headerThreeDataRows = adjustRowsAfterIndex(table, rowMap.headerThreeIndex + 1, 1);
+  const procedureRows = adjustRowsBeforeIndex(
+    table,
+    rowMap.headerTwoIndex + 1,
+    rowMap.headerThreeIndex,
+    Math.max(1, group.procedureRows.length),
+  );
+
+  if (headerOneDataRow) {
+    const cells = xpNodes("./w:tc", headerOneDataRow);
+    setCellTextKeepParagraph(
+      cells[0] ?? null,
+      group.headerOne.responsibleTeam ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerOne.databaseOrDirectory ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+    setCellTextKeepParagraph(
+      cells[2] ?? null,
+      group.headerOne.application ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+  }
+
+  for (let i = 0; i < procedureRows.length; i += 1) {
+    const item = group.procedureRows[i] ?? { step: "", objectToBackup: "" };
+    const cells = xpNodes("./w:tc", procedureRows[i]);
+    setCellTextKeepParagraph(cells[0] ?? null, item.step ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(cells[1] ?? null, item.objectToBackup ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    if (cells.length > 2) {
+      for (let j = 2; j < cells.length; j += 1) {
+        setCellTextKeepParagraph(cells[j], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+
+  const footerRow = headerThreeDataRows[0] ?? null;
+  if (footerRow) {
+    const cells = xpNodes("./w:tc", footerRow);
+    setCellTextKeepParagraph(cells[0] ?? null, group.headerThree.server ?? "", doc, {
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerThree.additionalComments ?? "",
+      doc,
+      { align: "center", verticalAlign: "center" },
+    );
+    if (cells.length > 2) {
+      for (let j = 2; j < cells.length; j += 1) {
+        setCellTextKeepParagraph(cells[j], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+}
+
+function fillBackupObjectsSection(
+  doc: Document,
+  root: Document,
+  backupTables: BackupTableGroup[],
+) {
+  if (!backupTables.length) return;
+
+  const region = findBackupTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findBackupTableAnchorsInRegion(startParagraph, endParagraph);
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (let i = 0; i < backupTables.length; i += 1) {
+    const tableNode =
+      i === 0 ? templateTable.cloneNode(true) : templateTable.cloneNode(true);
+    fillBackupTable(doc, tableNode, backupTables[i]);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
+  }
+}
+
+function fillBackupFixObjectsSection(
+  doc: Document,
+  root: Document,
+  backupFixTables: BackupTableGroup[],
+) {
+  if (!backupFixTables.length) return;
+
+  const region = findFixBackupTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findBackupTableAnchorsInRegion(startParagraph, endParagraph);
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (const group of backupFixTables) {
+    const tableNode = templateTable.cloneNode(true);
+    fillFixBackupTable(doc, tableNode, group);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
+  }
+}
+
+function hasInstallationHeaderOneText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("equipo implementador") &&
+    normalized.includes("rama de integracion") &&
+    normalized.includes("repositorio")
+  );
+}
+
+function hasInstallationHeaderTwoText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("paso") &&
+    normalized.includes("objeto a instalar") &&
+    normalized.includes("ruta en versionador")
+  );
+}
+
+function hasInstallationHeaderThreeText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("base de datos/directorio") &&
+    normalized.includes("servidor") &&
+    normalized.includes("nombre, ip")
+  );
+}
+
+function hasInstallationHeaderFourText(text: string) {
+  const normalized = normalizeKey(text);
+  return (
+    normalized.includes("aplicativo a implementar") &&
+    normalized.includes("comentarios adicionales")
+  );
+}
+
+function findInstallationTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const previousStepsParagraph = findParagraphByText(root, PREVIOUS_STEPS_TITLE);
+  if (!body || !previousStepsParagraph) return null;
+
+  const startParagraph = (() => {
+    let cursor = previousStepsParagraph.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType !== 1 || (cursor as Element).localName !== "p") {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+
+      const text = normalizeKey(getTextDeep(cursor));
+
+      if (text.includes(normalizeKey(FIX_IMPLEMENTATION_TITLE))) {
+        return null;
+      }
+
+      if (text.includes(normalizeKey(INSTALLATION_STEPS_TITLE))) {
+        return cursor;
+      }
+
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!startParagraph) return null;
+
+  const endParagraph = (() => {
+    let cursor = startParagraph.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType !== 1 || (cursor as Element).localName !== "p") {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+
+      const text = normalizeKey(getTextDeep(cursor));
+
+      if (text.includes(normalizeKey(FIX_IMPLEMENTATION_TITLE))) {
+        return null;
+      }
+
+      if (text.includes(normalizeKey(REVERSION_STEPS_TITLE))) {
+        return cursor;
+      }
+
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!endParagraph) return null;
+
+  return { body, startParagraph, endParagraph };
+}
+
+function findReversionTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const previousStepsParagraph = findParagraphByText(root, PREVIOUS_STEPS_TITLE);
+  if (!body || !previousStepsParagraph) return null;
+
+  const startParagraph = (() => {
+    let cursor = previousStepsParagraph.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType !== 1 || (cursor as Element).localName !== "p") {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+
+      const text = normalizeKey(getTextDeep(cursor));
+      if (text.includes(normalizeKey(REVERSION_STEPS_TITLE))) {
+        return cursor;
+      }
+      if (text.includes(normalizeKey(FIX_IMPLEMENTATION_TITLE))) {
+        return null;
+      }
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!startParagraph) return null;
+
+  const endParagraph = (() => {
+    let cursor = startParagraph.nextSibling;
+    while (cursor) {
+      if (cursor.nodeType !== 1 || (cursor as Element).localName !== "p") {
+        cursor = cursor.nextSibling;
+        continue;
+      }
+
+      const text = normalizeKey(getTextDeep(cursor));
+      if (text.includes(normalizeKey(FIX_IMPLEMENTATION_TITLE))) {
+        return cursor;
+      }
+      cursor = cursor.nextSibling;
+    }
+    return null;
+  })();
+
+  if (!endParagraph) return null;
+
+  return { body, startParagraph, endParagraph };
+}
+
+function findFixBackupTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const fixImplementationParagraph = findParagraphByText(root, FIX_IMPLEMENTATION_TITLE);
+  if (!body || !fixImplementationParagraph) return null;
+
+  const startParagraph = findParagraphByTextAfter(
+    fixImplementationParagraph,
+    BACKUP_OBJECTS_TITLE,
+  );
+  const endParagraph = findParagraphByTextAfter(
+    fixImplementationParagraph,
+    INSTALLATION_STEPS_TITLE,
+  );
+
+  if (!startParagraph || !endParagraph) return null;
+  return { body, startParagraph, endParagraph };
+}
+
+function findFixInstallationTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const fixImplementationParagraph = findParagraphByText(root, FIX_IMPLEMENTATION_TITLE);
+  if (!body || !fixImplementationParagraph) return null;
+
+  const startParagraph = findParagraphByTextAfter(
+    fixImplementationParagraph,
+    INSTALLATION_STEPS_TITLE,
+  );
+  const endParagraph = findParagraphByTextAfter(
+    fixImplementationParagraph,
+    REVERSION_STEPS_TITLE,
+  );
+
+  if (!startParagraph || !endParagraph) return null;
+  return { body, startParagraph, endParagraph };
+}
+
+function findFixReversionTableRegion(root: Document) {
+  const body = xpNode("/w:document/w:body", root);
+  const fixImplementationParagraph = findParagraphByText(root, FIX_IMPLEMENTATION_TITLE);
+  if (!body || !fixImplementationParagraph) return null;
+
+  const startParagraph = findParagraphByTextAfter(
+    fixImplementationParagraph,
+    REVERSION_STEPS_TITLE,
+  );
+  const endParagraph =
+    findParagraphByTextAfter(
+      fixImplementationParagraph,
+      "Para uso exclusivo del Banco Ficohsa",
+    ) ?? findParagraphByTextAfter(fixImplementationParagraph, "Detallar Fecha:");
+
+  if (!startParagraph || !endParagraph) return null;
+  return { body, startParagraph, endParagraph };
+}
+
+function findInstallationTableAnchorsInRegion(
+  startParagraph: Node,
+  endParagraph: Node,
+) {
+  const tables: Node[] = [];
+  let cursor = startParagraph.nextSibling;
+  while (cursor && cursor !== endParagraph) {
+    if (
+      cursor.nodeType === 1 &&
+      (cursor as Element).localName === "tbl" &&
+      hasInstallationHeaderOneText(getTextDeep(cursor))
+    ) {
+      tables.push(cursor);
+    }
+    cursor = cursor.nextSibling;
+  }
+  return tables;
+}
+
+function mapInstallationTableRows(table: Node) {
+  const rows = xpNodes("./w:tr", table);
+  const headerOneIndex = rows.findIndex((row) =>
+    hasInstallationHeaderOneText(getTextDeep(row)),
+  );
+  const headerTwoIndex = rows.findIndex(
+    (row, index) =>
+      index > headerOneIndex && hasInstallationHeaderTwoText(getTextDeep(row)),
+  );
+  const headerThreeIndex = rows.findIndex(
+    (row, index) =>
+      index > headerTwoIndex && hasInstallationHeaderThreeText(getTextDeep(row)),
+  );
+  const headerFourIndex = rows.findIndex(
+    (row, index) =>
+      index > headerThreeIndex && hasInstallationHeaderFourText(getTextDeep(row)),
+  );
+
+  if (
+    headerOneIndex === -1 ||
+    headerTwoIndex === -1 ||
+    headerThreeIndex === -1 ||
+    headerFourIndex === -1
+  ) {
+    return null;
+  }
+
+  return {
+    headerOneIndex,
+    headerTwoIndex,
+    headerThreeIndex,
+    headerFourIndex,
+  };
+}
+
+function fillInstallationTable(
+  doc: Document,
+  table: Node,
+  group: InstallationTableGroup,
+) {
+  const rowMap = mapInstallationTableRows(table);
+  if (!rowMap) return;
+
+  const rows = xpNodes("./w:tr", table);
+  const headerOneDataRow = rows[rowMap.headerOneIndex + 1] ?? null;
+  const headerThreeDataRow = adjustRowsBeforeIndex(
+    table,
+    rowMap.headerThreeIndex + 1,
+    rowMap.headerFourIndex,
+    1,
+  )[0] ?? null;
+  const headerFourDataRow = adjustRowsAfterIndex(
+    table,
+    rowMap.headerFourIndex + 1,
+    1,
+  )[0] ?? null;
+  const procedureRows = adjustRowsBeforeIndex(
+    table,
+    rowMap.headerTwoIndex + 1,
+    rowMap.headerThreeIndex,
+    Math.max(1, group.procedureRows.length),
+  );
+
+  if (headerOneDataRow) {
+    const cells = xpNodes("./w:tc", headerOneDataRow);
+    setCellTextKeepParagraph(
+      cells[0] ?? null,
+      group.headerOne.implementingTeam ?? "",
+      doc,
+      { bold: true, align: "center", verticalAlign: "center" },
+    );
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerOne.integrationBranch ?? "",
+      doc,
+      {
+        bold: true,
+        italic: hasRealBranchValue(group.headerOne.integrationBranch ?? ""),
+        align: "center",
+        verticalAlign: "center",
+      },
+    );
+    setCellTextKeepParagraph(
+      cells[2] ?? null,
+      group.headerOne.repository ?? "",
+      doc,
+      {
+        bold: true,
+        align: "center",
+        verticalAlign: "center",
+      },
+    );
+  }
+
+  for (let i = 0; i < procedureRows.length; i += 1) {
+    const item = group.procedureRows[i] ?? {
+      step: "",
+      objectToInstall: "",
+      versionerPath: "",
+    };
+    const cells = xpNodes("./w:tc", procedureRows[i]);
+    setCellTextKeepParagraph(cells[0] ?? null, item.step ?? "", doc, {
+      bold: isDefaultNAValue(item.step ?? ""),
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(cells[1] ?? null, item.objectToInstall ?? "", doc, {
+      bold: isDefaultNAValue(item.objectToInstall ?? ""),
+      align: "center",
+      verticalAlign: "center",
+    });
+    setCellTextKeepParagraph(cells[2] ?? null, item.versionerPath ?? "", doc, {
+      bold: isDefaultNAValue(item.versionerPath ?? ""),
+      align: "center",
+      verticalAlign: "center",
+    });
+  }
+
+  if (headerThreeDataRow) {
+    const cells = xpNodes("./w:tc", headerThreeDataRow);
+    setCellTextKeepParagraph(
+      cells[0] ?? null,
+      group.headerThree.databaseOrDirectory ?? "",
+      doc,
+      {
+        bold: isDefaultNAValue(group.headerThree.databaseOrDirectory ?? ""),
+        align: "center",
+        verticalAlign: "center",
+      },
+    );
+    setCellTextKeepParagraph(cells[1] ?? null, group.headerThree.server ?? "", doc, {
+      bold: isDefaultNAValue(group.headerThree.server ?? ""),
+      align: "center",
+      verticalAlign: "center",
+    });
+    if (cells.length > 2) {
+      for (let i = 2; i < cells.length; i += 1) {
+        setCellTextKeepParagraph(cells[i], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+
+  if (headerFourDataRow) {
+    const cells = xpNodes("./w:tc", headerFourDataRow);
+    setCellTextKeepParagraph(
+      cells[0] ?? null,
+      group.headerFour.applicationToImplement ?? "",
+      doc,
+      {
+        bold: isDefaultNAValue(group.headerFour.applicationToImplement ?? ""),
+        align: "center",
+        verticalAlign: "center",
+      },
+    );
+    setCellTextKeepParagraph(
+      cells[1] ?? null,
+      group.headerFour.additionalComments ?? "",
+      doc,
+      {
+        bold: isDefaultNAValue(group.headerFour.additionalComments ?? ""),
+        align: "center",
+        verticalAlign: "center",
+      },
+    );
+    if (cells.length > 2) {
+      for (let i = 2; i < cells.length; i += 1) {
+        setCellTextKeepParagraph(cells[i], "", doc, {
+          align: "center",
+          verticalAlign: "center",
+        });
+      }
+    }
+  }
+}
+
+function fillInstallationStepsSection(
+  doc: Document,
+  root: Document,
+  installationTables: InstallationTableGroup[],
+) {
+  if (!installationTables.length) return;
+
+  const region = findInstallationTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findInstallationTableAnchorsInRegion(
+    startParagraph,
+    endParagraph,
+  );
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (const group of installationTables) {
+    const tableNode = templateTable.cloneNode(true);
+    fillInstallationTable(doc, tableNode, group);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
+  }
+}
+
+function fillReversionStepsSection(
+  doc: Document,
+  root: Document,
+  reversionTables: InstallationTableGroup[],
+) {
+  if (!reversionTables.length) return;
+
+  const region = findReversionTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findInstallationTableAnchorsInRegion(
+    startParagraph,
+    endParagraph,
+  );
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (const group of reversionTables) {
+    const tableNode = templateTable.cloneNode(true);
+    fillInstallationTable(doc, tableNode, group);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
+  }
+}
+
+function fillFixInstallationStepsSection(
+  doc: Document,
+  root: Document,
+  installationFixTables: InstallationTableGroup[],
+) {
+  if (!installationFixTables.length) return;
+
+  const region = findFixInstallationTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findInstallationTableAnchorsInRegion(
+    startParagraph,
+    endParagraph,
+  );
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (const group of installationFixTables) {
+    const tableNode = templateTable.cloneNode(true);
+    fillInstallationTable(doc, tableNode, group);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
+  }
+}
+
+function fillFixReversionStepsSection(
+  doc: Document,
+  root: Document,
+  reversionFixTables: InstallationTableGroup[],
+) {
+  if (!reversionFixTables.length) return;
+
+  const region = findFixReversionTableRegion(root);
+  if (!region) return;
+
+  const { body, startParagraph, endParagraph } = region;
+  const existingTables = findInstallationTableAnchorsInRegion(
+    startParagraph,
+    endParagraph,
+  );
+  const templateTable = existingTables[0]?.cloneNode(true) ?? null;
+  if (!templateTable) return;
+
+  let cursor = startParagraph.nextSibling;
+  const removableNodes: Node[] = [];
+  while (cursor && cursor !== endParagraph) {
+    const next = cursor.nextSibling;
+    if (cursor.nodeType === 1) {
+      removableNodes.push(cursor);
+    }
+    cursor = next;
+  }
+
+  for (const node of removableNodes) {
+    if (node.parentNode === body) {
+      body.removeChild(node);
+    }
+  }
+
+  for (const group of reversionFixTables) {
+    const tableNode = templateTable.cloneNode(true);
+    fillInstallationTable(doc, tableNode, group);
+    body.insertBefore(tableNode, endParagraph);
+    body.insertBefore(doc.createElementNS(W_NS, "w:p"), endParagraph);
   }
 }
 
@@ -1374,6 +2399,12 @@ async function fillDetailedPieces(
 export async function fillInfoGeneral(
   template: Uint8Array,
   sections: UISection[],
+  backupTables: BackupTableGroup[] = [],
+  backupFixTables: BackupTableGroup[] = [],
+  installationTables: InstallationTableGroup[] = [],
+  reversionTables: InstallationTableGroup[] = [],
+  installationFixTables: InstallationTableGroup[] = [],
+  reversionFixTables: InstallationTableGroup[] = [],
   servicesProducts: string[] = [],
   affectedAreas: string[] = [],
   repositoryNames: string[] = [],
@@ -1468,6 +2499,12 @@ export async function fillInfoGeneral(
   fillRepositoryNames(doc, doc, repositoryNames);
   fillCommunicationMatrix(doc, doc, communicationMatrix);
   fillPreviousStepsSection(doc, doc, previousStepsHtml);
+  fillBackupObjectsSection(doc, doc, backupTables);
+  fillBackupFixObjectsSection(doc, doc, backupFixTables);
+  fillInstallationStepsSection(doc, doc, installationTables);
+  fillReversionStepsSection(doc, doc, reversionTables);
+  fillFixInstallationStepsSection(doc, doc, installationFixTables);
+  fillFixReversionStepsSection(doc, doc, reversionFixTables);
 
   const outXml = new XMLSerializer().serializeToString(doc);
   zip.file("word/document.xml", outXml);
@@ -1479,6 +2516,12 @@ export async function fillManual(
   sections: UISection[],
   piezasDetalladas: PiezasGrupo[],
   detailedFixPieces: PiezasGrupo[] = [],
+  backupTables: BackupTableGroup[] = [],
+  backupFixTables: BackupTableGroup[] = [],
+  installationTables: InstallationTableGroup[] = [],
+  reversionTables: InstallationTableGroup[] = [],
+  installationFixTables: InstallationTableGroup[] = [],
+  reversionFixTables: InstallationTableGroup[] = [],
   servicesProducts: string[] = [],
   affectedAreas: string[] = [],
   repositoryNames: string[] = [],
@@ -1488,6 +2531,12 @@ export async function fillManual(
   const withInfo = await fillInfoGeneral(
     template,
     sections,
+    backupTables,
+    backupFixTables,
+    installationTables,
+    reversionTables,
+    installationFixTables,
+    reversionFixTables,
     servicesProducts,
     affectedAreas,
     repositoryNames,

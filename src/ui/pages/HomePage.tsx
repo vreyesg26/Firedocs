@@ -20,7 +20,10 @@ import { IconCircleArrowRightFilled } from "@tabler/icons-react";
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const { handleOpen } = useManual();
+  const { handleOpen, handleOpenUnion } = useManual() as {
+    handleOpen: () => Promise<boolean | undefined>;
+    handleOpenUnion: () => Promise<boolean>;
+  };
   const [hasDrafts, setHasDrafts] = useState(false);
 
   useEffect(() => {
@@ -43,6 +46,11 @@ export default function HomePage() {
     if (ok) navigate("/import");
   };
 
+  const onUnionClick = async () => {
+    const ok = await handleOpenUnion();
+    if (ok) navigate("/import");
+  };
+
   const features = mainButtonsData.map((feature) => (
     <Card
       key={feature.title}
@@ -51,7 +59,11 @@ export default function HomePage() {
       className={classes.card}
       padding="xl"
       onClick={
-        feature.key === "import" ? onImportClick : () => navigate("/templates")
+        feature.key === "import"
+          ? onImportClick
+          : feature.key === "union"
+            ? onUnionClick
+            : () => navigate("/templates")
       }
     >
       <feature.icon size={50} stroke={1.5} />
@@ -83,10 +95,10 @@ export default function HomePage() {
           y sencilla, optimizando su tiempo y recursos.
         </Text>
         <SimpleGrid
-          cols={{ base: 1, sm: 1, md: 2, lg: 2 }}
+          cols={{ base: 1, sm: 1, md: features.length, lg: features.length }}
           spacing="sm"
-          mt={50}
           mx="md"
+          mt={50}
         >
           {features}
         </SimpleGrid>

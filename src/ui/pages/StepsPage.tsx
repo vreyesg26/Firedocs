@@ -12,17 +12,18 @@ import {
   Title,
   Card,
   ActionIcon,
+  Switch,
 } from "@mantine/core";
-import { steps } from "@/lib/constants";
+import { getDefaultVisibleStepKeys, hiddenByDefaultStepKeys, steps } from "@/lib/constants";
 import { useManual } from "@/context/ManualContext";
 import {
   IconArrowLeft,
   IconChevronLeft,
   IconChevronRight,
-  IconFileUpload,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
 import { Navigate, useNavigate } from "react-router-dom";
+import { getManualProgress } from "@/lib/manual-progress";
 import {
   EighthStep,
   EleventhStep,
@@ -37,13 +38,33 @@ import {
   ThirdStep,
   TwelfthStep,
 } from "./steps";
+import type {
+  BackupTableGroup,
+  CommunicationMatrixRow,
+  InstallationTableGroup,
+  PiezasGrupo,
+  UISection,
+} from "@/types/manual";
+
+const fixFlowStepKeys = [...hiddenByDefaultStepKeys];
 
 export default function StepsPage() {
   const navigate = useNavigate();
   const {
     data,
     sections,
-    handleExport,
+    detailedPieces,
+    detailedFixPieces,
+    servicesProducts,
+    affectedAreas,
+    repositoryNames,
+    communicationMatrix,
+    installationTables,
+    reversionTables,
+    backupFixTables,
+    installationFixTables,
+    reversionFixTables,
+    //handleExport,
     manualTitle,
     setManualTitle,
     activeStep,
@@ -51,7 +72,33 @@ export default function StepsPage() {
     draftId,
     hasUnsavedChanges,
     saveCurrentDraft,
-  } = useManual();
+    visibleStepKeys,
+    setVisibleStepKeys,
+  } = useManual() as {
+    data: unknown;
+    sections: UISection[] | null;
+    detailedPieces: PiezasGrupo[];
+    detailedFixPieces: PiezasGrupo[];
+    servicesProducts: string[];
+    affectedAreas: string[];
+    repositoryNames: string[];
+    communicationMatrix: CommunicationMatrixRow[];
+    installationTables: InstallationTableGroup[];
+    reversionTables: InstallationTableGroup[];
+    backupFixTables: BackupTableGroup[];
+    installationFixTables: InstallationTableGroup[];
+    reversionFixTables: InstallationTableGroup[];
+    handleExport: () => Promise<void>;
+    manualTitle: string;
+    setManualTitle: (value: string) => void;
+    activeStep: number;
+    setActiveStep: (value: number) => void;
+    draftId: string | null;
+    hasUnsavedChanges: boolean;
+    saveCurrentDraft: () => Promise<{ id?: string } | undefined>;
+    visibleStepKeys: string[];
+    setVisibleStepKeys: (value: string[]) => void;
+  };
   const normalizedActiveStep =
     typeof activeStep === "number" && Number.isFinite(activeStep)
       ? activeStep
@@ -60,35 +107,110 @@ export default function StepsPage() {
   const [draftSaving, setDraftSaving] = useState(false);
   const [active, setActive] = useState<number>(normalizedActiveStep);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
-  const completed = active === steps.length;
 
   useEffect(() => {
     setActive(normalizedActiveStep);
   }, [normalizedActiveStep]);
 
-  const percent = useMemo(
-    () => Math.round((active / steps.length) * 100),
-    [active],
+  const normalizedVisibleStepKeys = useMemo(() => {
+    const availableKeys = new Set(steps.map((step) => step.key));
+    const filtered = (visibleStepKeys ?? []).filter((key) => availableKeys.has(key));
+    return filtered.length > 0 ? filtered : [steps[0]?.key].filter(Boolean);
+  }, [visibleStepKeys]);
+
+  const visibleSteps = useMemo(
+    () => steps.filter((step) => normalizedVisibleStepKeys.includes(step.key)),
+    [normalizedVisibleStepKeys],
   );
 
+  const isFixFlowEnabled = useMemo(
+    () => fixFlowStepKeys.every((stepKey) => normalizedVisibleStepKeys.includes(stepKey)),
+    [normalizedVisibleStepKeys],
+  );
+
+  useEffect(() => {
+    if (!steps[active] || normalizedVisibleStepKeys.includes(steps[active].key)) {
+      return;
+    }
+
+    const fallbackStep = steps.findIndex((step) =>
+      normalizedVisibleStepKeys.includes(step.key),
+    );
+    const nextActive = fallbackStep >= 0 ? fallbackStep : 0;
+    setActive(nextActive);
+    setActiveStep(nextActive);
+  }, [active, normalizedVisibleStepKeys, setActiveStep]);
+
+  const currentVisibleIndex = useMemo(
+    () => visibleSteps.findIndex((step) => step.key === steps[active]?.key),
+    [active, visibleSteps],
+  );
+
+  const progress = useMemo(
+    () =>
+      getManualProgress({
+        sections,
+        detailedPieces,
+        detailedFixPieces,
+        servicesProducts,
+        affectedAreas,
+        repositoryNames,
+        communicationMatrix,
+        installationTables,
+        reversionTables,
+        backupFixTables,
+        installationFixTables,
+        reversionFixTables,
+        visibleStepKeys: normalizedVisibleStepKeys,
+      }),
+    [
+      affectedAreas,
+      backupFixTables,
+      communicationMatrix,
+      detailedFixPieces,
+      detailedPieces,
+      installationFixTables,
+      installationTables,
+      normalizedVisibleStepKeys,
+      repositoryNames,
+      reversionFixTables,
+      reversionTables,
+      sections,
+      servicesProducts,
+    ],
+  );
+
+  const isCurrentStepComplete = useMemo(() => {
+    const currentStepKey = steps[active]?.key;
+    if (!currentStepKey) return false;
+    return progress.completionByStepKey[currentStepKey] ?? false;
+  }, [active, progress]);
+
   const next = () => {
-    const nextStep = Math.min(active + 1, steps.length);
-    setActive(nextStep);
-    setActiveStep(nextStep);
+    if (currentVisibleIndex >= visibleSteps.length - 1) {
+      navigate("/preview");
+      return;
+    }
+    const nextStep = visibleSteps[currentVisibleIndex + 1];
+    if (!nextStep) return;
+    const nextStepIndex = steps.findIndex((step) => step.key === nextStep.key);
+    setActive(nextStepIndex);
+    setActiveStep(nextStepIndex);
   };
   const prev = () => {
-    const prevStep = Math.max(active - 1, 0);
-    setActive(prevStep);
-    setActiveStep(prevStep);
+    if (currentVisibleIndex <= 0) return;
+    const prevStep = visibleSteps[currentVisibleIndex - 1];
+    if (!prevStep) return;
+    const prevStepIndex = steps.findIndex((step) => step.key === prevStep.key);
+    setActive(prevStepIndex);
+    setActiveStep(prevStepIndex);
   };
 
   useEffect(() => {
     const step = steps[active];
-    const title = completed
-      ? "Manual completado"
-      : (step?.description ?? "Manuales automatizados");
+    const title = step?.description ?? "Manuales automatizados";
     void window.ipc.setWindowTitle(title);
-  }, [active, completed]);
+  }, [active]);
 
   useEffect(() => {
     if (!isEditingTitle) return;
@@ -146,6 +268,14 @@ export default function StepsPage() {
     }
   };
 
+  function handleToggleFixFlow(enabled: boolean) {
+    const defaultVisibleKeys = getDefaultVisibleStepKeys();
+    const nextVisibleKeys = enabled
+      ? steps.map((step) => step.key)
+      : defaultVisibleKeys;
+    setVisibleStepKeys(nextVisibleKeys);
+  }
+
   if (!data || !sections) {
     return <Navigate to="/" replace />;
   }
@@ -166,13 +296,11 @@ export default function StepsPage() {
         <Flex justify="space-between" align="center" gap="xs">
           <ActionIcon
             variant="subtle"
-            color='white'
+            color="white"
             onClick={() => navigate("/drafts")}
             aria-label="Volver a borradores"
           >
-            <IconArrowLeft
-              size='1.5rem'
-            />
+            <IconArrowLeft size="1.5rem" />
           </ActionIcon>
           <Box
             style={{
@@ -234,34 +362,42 @@ export default function StepsPage() {
               }}
             />
           </Box>
-          {(!draftId || hasUnsavedChanges) && (
+          {hasUnsavedChanges && (
             <Button
               color={mainColor}
               onClick={handleSaveDraft}
               disabled={draftSaving}
-              rightSection={draftSaving ? <Loader size={14} color="white" /> : null}
+              rightSection={
+                draftSaving ? <Loader size={14} color="white" /> : null
+              }
             >
               {draftId ? "Guardar borrador" : "Crear borrador"}
             </Button>
           )}
+          <Switch
+            checked={isFixFlowEnabled}
+            onChange={(event) =>
+              handleToggleFixFlow(event.currentTarget.checked)
+            }
+            label="Incluye Bugfix/Hotfix"
+            size="sm"
+          />
         </Flex>
       </Card>
 
       <Progress
         color={mainColor}
-        value={percent}
+        value={progress.percent}
         size="lg"
         radius="sm"
         mt="md"
       />
       <Group justify="space-between" my="xs">
         <Text fw={600}>Progreso del manual</Text>
-        <Text c="dimmed">{percent}%</Text>
+        <Text c="dimmed">{progress.percent}%</Text>
       </Group>
 
-      <Box my="md">
-        {renderStepContent()}
-      </Box>
+      <Box my="md">{renderStepContent()}</Box>
 
       <Box mt="auto" style={{ flexShrink: 0 }}>
         <Group justify="space-between" align="center" wrap="wrap" gap="xs">
@@ -269,31 +405,34 @@ export default function StepsPage() {
             leftSection={<IconChevronLeft size="1.1rem" />}
             variant="default"
             onClick={prev}
-            disabled={active === 0}
+            disabled={currentVisibleIndex <= 0}
           >
             Atrás
           </Button>
 
-          <Flex gap="xs" wrap="wrap" justify="flex-end" style={{ marginLeft: "auto" }}>
-            <Button
+          <Flex
+            gap="xs"
+            wrap="wrap"
+            justify="flex-end"
+            style={{ marginLeft: "auto" }}
+          >
+            {/* <Button
               leftSection={<IconFileUpload size="1.1rem" />}
               onClick={handleExport}
               variant="outline"
               color="gray"
             >
               Exportar
-            </Button>
+            </Button> */}
             <Button
               rightSection={<IconChevronRight size="1.1rem" />}
               onClick={next}
-              disabled={completed}
               color={mainColor}
+              disabled={!isCurrentStepComplete}
             >
-              {completed
-                ? "Listo"
-                : active < steps.length - 1
-                  ? "Siguiente"
-                  : "Finalizar"}
+              {currentVisibleIndex < visibleSteps.length - 1
+                ? "Siguiente"
+                : "Vista previa"}
             </Button>
           </Flex>
         </Group>

@@ -25,7 +25,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
-import { steps } from "@/lib/constants";
+import { getManualProgress, type ManualProgressState } from "@/lib/manual-progress";
 
 type DraftMeta = {
   id: string;
@@ -36,6 +36,8 @@ type DraftMeta = {
   updatedAt: string;
   size?: number;
   activeStep?: number;
+  visibleStepKeys?: string[];
+  progressState?: unknown;
 };
 
 type SortMode = "updated_desc" | "name_asc" | "created_desc" | "size_desc";
@@ -47,12 +49,8 @@ function formatBytes(bytes?: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getDraftProgress(activeStep?: number) {
-  const step = Number.isFinite(activeStep) ? Number(activeStep) : 0;
-  const clamped = Math.max(0, Math.min(step, steps.length));
-  const completed = clamped >= steps.length;
-  const percent = completed ? 100 : Math.round((clamped / steps.length) * 100);
-  return { completed, percent };
+function getDraftProgress(progressState?: ManualProgressState) {
+  return getManualProgress(progressState ?? {});
 }
 
 function TruncatedDraftTitle({ title }: { title: string }) {
@@ -169,33 +167,35 @@ export default function DraftsPage() {
       <Flex justify="space-between" align="center" mb="md">
         <Title order={2}>Borradores</Title>
         <Group gap="xs">
-          <Menu withinPortal position="bottom-end" shadow="sm">
-            <Menu.Target>
-              <Button
-                variant="outline"
-                color="gray"
-                leftSection={<IconArrowsSort size={16} />}
-              >
-                Ordenar
-              </Button>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item onClick={() => setSortMode("updated_desc")}>
-                Fecha de actualización
-              </Menu.Item>
-              <Menu.Item onClick={() => setSortMode("created_desc")}>
-                Fecha de creación
-              </Menu.Item>
-              <Menu.Item onClick={() => setSortMode("name_asc")}>
-                Nombre (A-Z)
-              </Menu.Item>
-              <Menu.Item onClick={() => setSortMode("size_desc")}>
-                Tamaño (mayor a menor)
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
+          {drafts.length > 0 && (
+            <Menu withinPortal position="bottom-end" shadow="sm">
+              <Menu.Target>
+                <Button
+                  variant="filled"
+                  color={mainColor}
+                  leftSection={<IconArrowsSort size={16} />}
+                >
+                  Ordenar
+                </Button>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item onClick={() => setSortMode("updated_desc")}>
+                  Fecha de actualización
+                </Menu.Item>
+                <Menu.Item onClick={() => setSortMode("created_desc")}>
+                  Fecha de creación
+                </Menu.Item>
+                <Menu.Item onClick={() => setSortMode("name_asc")}>
+                  Nombre (A-Z)
+                </Menu.Item>
+                <Menu.Item onClick={() => setSortMode("size_desc")}>
+                  Tamaño (mayor a menor)
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          )}
           <Button
-            variant="outline"
+            variant="filled"
             leftSection={<IconArrowLeft size={16} />}
             color="gray"
             onClick={() => navigate("/")}
@@ -222,7 +222,9 @@ export default function DraftsPage() {
       ) : (
         <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="md">
           {sortedDrafts.map((draft) => {
-            const progress = getDraftProgress(draft.activeStep);
+            const progress = getDraftProgress(
+              draft.progressState as ManualProgressState | undefined,
+            );
             return (
               <Card key={draft.id} withBorder radius="md" p={0}>
                 <Stack p="md" gap="lg">
@@ -241,7 +243,7 @@ export default function DraftsPage() {
                     </Group>
                     <Progress
                       value={progress.percent}
-                      color={progress.completed ? "teal" : mainColor}
+                      color={progress.completed ? "green" : mainColor}
                       size="sm"
                       radius="xl"
                     />

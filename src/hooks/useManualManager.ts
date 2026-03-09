@@ -8,9 +8,10 @@ import type {
   PiezasGrupo,
   CommunicationMatrixRow,
   BackupTableGroup,
+  InstallationTableGroup,
 } from "@/types/manual";
 import type { RepoStatus } from "@/types/git";
-import { countryOptions } from "@/lib/constants";
+import { countryOptions, getDefaultVisibleStepKeys } from "@/lib/constants";
 
 function b64ToUint8(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -32,6 +33,12 @@ function buildDraftSnapshot(input: {
   detailedPieces: PiezasGrupo[];
   detailedFixPieces: PiezasGrupo[];
   backupTables: BackupTableGroup[];
+  backupFixTables: BackupTableGroup[];
+  installationTables: InstallationTableGroup[];
+  reversionTables: InstallationTableGroup[];
+  installationFixTables: InstallationTableGroup[];
+  reversionFixTables: InstallationTableGroup[];
+  visibleStepKeys: string[];
   servicesProducts: string[];
   affectedAreas: string[];
   repositoryNames: string[];
@@ -45,6 +52,33 @@ function buildDraftSnapshot(input: {
     detailedPieces: input.detailedPieces ?? [],
     detailedFixPieces: input.detailedFixPieces ?? [],
     backupTables: input.backupTables ?? [],
+    backupFixTables: input.backupFixTables ?? [],
+    installationTables: input.installationTables ?? [],
+    reversionTables: input.reversionTables ?? [],
+    installationFixTables: input.installationFixTables ?? [],
+    reversionFixTables: input.reversionFixTables ?? [],
+    visibleStepKeys: input.visibleStepKeys ?? getDefaultVisibleStepKeys(),
+    servicesProducts: input.servicesProducts ?? [],
+    affectedAreas: input.affectedAreas ?? [],
+    repositoryNames: input.repositoryNames ?? [],
+    communicationMatrix: input.communicationMatrix ?? [],
+    previousStepsHtml: input.previousStepsHtml ?? "",
+  });
+}
+
+function buildDraftContentSnapshot(input: Omit<Parameters<typeof buildDraftSnapshot>[0], "activeStep">) {
+  return JSON.stringify({
+    manualTitle: (input.manualTitle || "").trim(),
+    sections: input.sections ?? [],
+    detailedPieces: input.detailedPieces ?? [],
+    detailedFixPieces: input.detailedFixPieces ?? [],
+    backupTables: input.backupTables ?? [],
+    backupFixTables: input.backupFixTables ?? [],
+    installationTables: input.installationTables ?? [],
+    reversionTables: input.reversionTables ?? [],
+    installationFixTables: input.installationFixTables ?? [],
+    reversionFixTables: input.reversionFixTables ?? [],
+    visibleStepKeys: input.visibleStepKeys ?? getDefaultVisibleStepKeys(),
     servicesProducts: input.servicesProducts ?? [],
     affectedAreas: input.affectedAreas ?? [],
     repositoryNames: input.repositoryNames ?? [],
@@ -56,6 +90,38 @@ function buildDraftSnapshot(input: {
 function titleFromFilePath(filePath: string) {
   const name = filePath.split(/[\\/]/).pop() || filePath;
   return name.replace(/\.[^.]+$/, "").trim() || "Sin título";
+}
+
+function toSafeDocxFileName(title: string) {
+  const trimmed = (title || "").trim();
+  const baseName =
+    trimmed
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() || "Manual-actualizado";
+
+  return baseName.toLowerCase().endsWith(".docx")
+    ? baseName
+    : `${baseName}.docx`;
+}
+
+function bytesFromUnknown(input: unknown): Uint8Array | null {
+  if (!input) return null;
+  if (input instanceof Uint8Array) return input;
+  if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  if (ArrayBuffer.isView(input)) {
+    const view = input as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+
+  if (typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (obj.type === "Buffer" && Array.isArray(obj.data)) {
+      return Uint8Array.from(obj.data as number[]);
+    }
+  }
+
+  return null;
 }
 
 function anyToUint8(input: unknown): Uint8Array | null {
@@ -128,6 +194,93 @@ function sanitizeCommunicationMatrix(values: unknown): CommunicationMatrixRow[] 
     );
 }
 
+function normalizeText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function uniqueByJson<T>(values: T[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = JSON.stringify(value);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeManualSections(sectionsList: UISection[][]) {
+  const bySection = new Map<string, UISection>();
+
+  for (const sections of sectionsList) {
+    for (const section of sections) {
+      const current = bySection.get(section.id);
+      if (!current) {
+        bySection.set(section.id, {
+          ...section,
+          fields: section.fields.map((field) => ({ ...field })),
+        });
+        continue;
+      }
+
+      const fieldMap = new Map(current.fields.map((field) => [field.key, field]));
+      for (const field of section.fields) {
+        const existing = fieldMap.get(field.key);
+        if (!existing) {
+          current.fields.push({ ...field });
+          fieldMap.set(field.key, current.fields[current.fields.length - 1]);
+          continue;
+        }
+
+        if (Array.isArray(existing.value) || Array.isArray(field.value)) {
+          const merged = Array.from(
+            new Set([
+              ...(Array.isArray(existing.value) ? existing.value : [existing.value]),
+              ...(Array.isArray(field.value) ? field.value : [field.value]),
+            ].map((value) => normalizeText(value)).filter(Boolean)),
+          );
+          existing.value = merged;
+          continue;
+        }
+
+        if (!normalizeText(existing.value) && normalizeText(field.value)) {
+          existing.value = field.value;
+        }
+      }
+    }
+  }
+
+  return Array.from(bySection.values());
+}
+
+function mergePreviousStepsHtml(values: string[]) {
+  const uniqueBlocks = Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
+  return uniqueBlocks.join("");
+}
+
+function buildInformationGeneralSignature(sections: UISection[] | undefined) {
+  const section = (sections ?? []).find(
+    (item) => item.id === "informacion-general",
+  );
+  if (!section) return "";
+
+  const normalizedFields = section.fields.map((field) => {
+    const normalizedValue = Array.isArray(field.value)
+      ? [...field.value].map((value) => normalizeText(value)).sort()
+      : normalizeText(field.value);
+
+    return {
+      key: field.key,
+      value: normalizedValue,
+    };
+  });
+
+  return JSON.stringify(
+    normalizedFields.sort((a, b) => a.key.localeCompare(b.key)),
+  );
+}
+
 export function useManualManager() {
   const [data, setData] = useState<ManualExtract | null>(null);
   const [sections, setSections] = useState<UISection[] | null>(null);
@@ -135,7 +288,7 @@ export function useManualManager() {
   const [manualTitle, setManualTitle] = useState("Sin título");
   const [activeStep, setActiveStep] = useState(0);
   const [draftId, setDraftId] = useState<string | null>(null);
-  const [lastSavedDraftSnapshot, setLastSavedDraftSnapshot] = useState<
+  const [lastSavedDraftContentSnapshot, setLastSavedDraftContentSnapshot] = useState<
     string | null
   >(null);
 
@@ -148,6 +301,22 @@ export function useManualManager() {
     [],
   );
   const [backupTables, setBackupTables] = useState<BackupTableGroup[]>([]);
+  const [backupFixTables, setBackupFixTables] = useState<BackupTableGroup[]>([]);
+  const [installationTables, setInstallationTables] = useState<
+    InstallationTableGroup[]
+  >([]);
+  const [reversionTables, setReversionTables] = useState<
+    InstallationTableGroup[]
+  >([]);
+  const [installationFixTables, setInstallationFixTables] = useState<
+    InstallationTableGroup[]
+  >([]);
+  const [reversionFixTables, setReversionFixTables] = useState<
+    InstallationTableGroup[]
+  >([]);
+  const [visibleStepKeys, setVisibleStepKeys] = useState<string[]>(
+    getDefaultVisibleStepKeys(),
+  );
   const [servicesProducts, setServicesProducts] = useState<string[]>([""]);
   const [affectedAreas, setAffectedAreas] = useState<string[]>([""]);
   const [repositoryNames, setRepositoryNames] = useState<string[]>([]);
@@ -156,15 +325,20 @@ export function useManualManager() {
   >([]);
   const [previousStepsHtml, setPreviousStepsHtml] = useState("");
 
-  const currentDraftSnapshot = useMemo(
+  const currentDraftContentSnapshot = useMemo(
     () =>
-      buildDraftSnapshot({
+      buildDraftContentSnapshot({
         manualTitle,
-        activeStep,
         sections,
         detailedPieces,
         detailedFixPieces,
         backupTables,
+        backupFixTables,
+        installationTables,
+        reversionTables,
+        installationFixTables,
+        reversionFixTables,
+        visibleStepKeys,
         servicesProducts,
         affectedAreas,
         repositoryNames,
@@ -173,11 +347,16 @@ export function useManualManager() {
       }),
     [
       manualTitle,
-      activeStep,
       sections,
       detailedPieces,
       detailedFixPieces,
       backupTables,
+      backupFixTables,
+      installationTables,
+      reversionTables,
+      installationFixTables,
+      reversionFixTables,
+      visibleStepKeys,
       servicesProducts,
       affectedAreas,
       repositoryNames,
@@ -187,7 +366,7 @@ export function useManualManager() {
   );
 
   const hasUnsavedChanges = draftId
-    ? currentDraftSnapshot !== lastSavedDraftSnapshot
+    ? currentDraftContentSnapshot !== lastSavedDraftContentSnapshot
     : true;
 
   async function loadFromTemplateBytes(bytes: Uint8Array) {
@@ -301,6 +480,12 @@ export function useManualManager() {
     setDetailedPieces(parsed.piezasDetalladas ?? []);
     setDetailedFixPieces(parsed.detailedFixPieces ?? []);
     setBackupTables(parsed.backupTables ?? []);
+    setBackupFixTables(parsed.backupFixTables ?? []);
+    setInstallationTables(parsed.installationTables ?? []);
+    setReversionTables(parsed.reversionTables ?? []);
+    setInstallationFixTables(parsed.installationFixTables ?? []);
+    setReversionFixTables(parsed.reversionFixTables ?? []);
+    setVisibleStepKeys(getDefaultVisibleStepKeys());
     setServicesProducts(
       Array.isArray(parsed.servicesProducts) && parsed.servicesProducts.length > 0
         ? parsed.servicesProducts
@@ -319,8 +504,127 @@ export function useManualManager() {
     setManualTitle("Sin título");
     setActiveStep(0);
     setDraftId(null);
-    setLastSavedDraftSnapshot(null);
+    setLastSavedDraftContentSnapshot(null);
     return true;
+  }
+
+  async function handleOpenUnion() {
+    try {
+      const selected = await window.ipc.selectMultipleDocx();
+      if (!selected?.length) return false;
+      if (selected.length < 2) {
+        alert(
+          "Se deben cargar minimo 2 manuales para poder utilizar esta caracteristica del sistema.",
+        );
+        return false;
+      }
+
+      const parsedList = await Promise.all(
+        selected.map(async (item: { filePath: string; bytes: Uint8Array }) => ({
+          bytes: item.bytes,
+          parsed: await parseDocxArrayBuffer(item.bytes),
+        })),
+      );
+
+      const infoGeneralSignatures = parsedList.map(({ parsed }) =>
+        buildInformationGeneralSignature(parsed.seccionesReconocidas),
+      );
+      const baseSignature = infoGeneralSignatures[0] ?? "";
+      const hasDifferentInformationGeneral = infoGeneralSignatures.some(
+        (signature) => signature !== baseSignature,
+      );
+
+      if (hasDifferentInformationGeneral) {
+        alert(
+          "Los manuales deben ser de la misma iniciativa o proyecto y tener la misma informacion general.",
+        );
+        return false;
+      }
+
+      const mergedSections = mergeManualSections(
+        parsedList.map(({ parsed }) => parsed.seccionesReconocidas ?? []),
+      );
+      const mergedData: ManualExtract = {
+        camposDetectados: uniqueByJson(
+          parsedList.flatMap(({ parsed }) => parsed.camposDetectados ?? []),
+        ),
+        piezasDetalladas: uniqueByJson(
+          parsedList.flatMap(({ parsed }) => parsed.piezasDetalladas ?? []),
+        ),
+        detailedFixPieces: uniqueByJson(
+          parsedList.flatMap(({ parsed }) => parsed.detailedFixPieces ?? []),
+        ),
+        backupTables: parsedList.flatMap(({ parsed }) => parsed.backupTables ?? []),
+        backupFixTables: parsedList.flatMap(
+          ({ parsed }) => parsed.backupFixTables ?? [],
+        ),
+        installationTables: parsedList.flatMap(
+          ({ parsed }) => parsed.installationTables ?? [],
+        ),
+        reversionTables: parsedList.flatMap(
+          ({ parsed }) => parsed.reversionTables ?? [],
+        ),
+        installationFixTables: parsedList.flatMap(
+          ({ parsed }) => parsed.installationFixTables ?? [],
+        ),
+        reversionFixTables: parsedList.flatMap(
+          ({ parsed }) => parsed.reversionFixTables ?? [],
+        ),
+        servicesProducts: Array.from(
+          new Set(
+            parsedList.flatMap(({ parsed }) => parsed.servicesProducts ?? []),
+          ),
+        ),
+        affectedAreas: Array.from(
+          new Set(parsedList.flatMap(({ parsed }) => parsed.affectedAreas ?? [])),
+        ),
+        repositoryNames: Array.from(
+          new Set(parsedList.flatMap(({ parsed }) => parsed.repositoryNames ?? [])),
+        ),
+        communicationMatrix: uniqueByJson(
+          parsedList.flatMap(({ parsed }) => parsed.communicationMatrix ?? []),
+        ),
+        previousStepsHtml: mergePreviousStepsHtml(
+          parsedList.map(({ parsed }) => parsed.previousStepsHtml ?? ""),
+        ),
+        seccionesReconocidas: mergedSections,
+        raw: {
+          paragraphs: parsedList.flatMap(({ parsed }) => parsed.raw?.paragraphs ?? []),
+          tables: parsedList.flatMap(({ parsed }) => parsed.raw?.tables ?? []),
+        },
+      };
+
+      setTemplateBytes(parsedList[0]?.bytes ?? null);
+      setData(mergedData);
+      setSections(mergedSections);
+      setDetailedPieces(mergedData.piezasDetalladas ?? []);
+      setDetailedFixPieces(mergedData.detailedFixPieces ?? []);
+      setBackupTables(mergedData.backupTables ?? []);
+      setBackupFixTables(mergedData.backupFixTables ?? []);
+      setInstallationTables(mergedData.installationTables ?? []);
+      setReversionTables(mergedData.reversionTables ?? []);
+      setInstallationFixTables(mergedData.installationFixTables ?? []);
+      setReversionFixTables(mergedData.reversionFixTables ?? []);
+      setServicesProducts(
+        mergedData.servicesProducts?.length ? mergedData.servicesProducts : [""],
+      );
+      setAffectedAreas(
+        mergedData.affectedAreas?.length ? mergedData.affectedAreas : [""],
+      );
+      setRepositoryNames(mergedData.repositoryNames ?? []);
+      setCommunicationMatrix(
+        sanitizeCommunicationMatrix(mergedData.communicationMatrix),
+      );
+      setPreviousStepsHtml(mergedData.previousStepsHtml ?? "");
+      setManualTitle("Sin título");
+      setActiveStep(0);
+      setDraftId(null);
+      setLastSavedDraftContentSnapshot(null);
+      return true;
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e));
+      return false;
+    }
   }
 
   async function handleOpen() {
@@ -357,13 +661,70 @@ export function useManualManager() {
       sections,
       detailedPieces,
       detailedFixPieces,
+      backupTables,
+      backupFixTables,
+      installationTables,
+      reversionTables,
+      installationFixTables,
+      reversionFixTables,
       servicesProducts,
       affectedAreas,
       repositoryNames,
       communicationMatrix,
       previousStepsHtml,
     );
-    await window.ipc.saveDocx(out, "Manual-actualizado.docx");
+    await window.ipc.saveDocx(out, toSafeDocxFileName(manualTitle));
+  }
+
+  async function buildCurrentManualDocx() {
+    if (!templateBytes) throw new Error("Primero carga un DOCX.");
+    if (!sections || sections.length === 0) {
+      throw new Error("No hay datos de Información general para exportar.");
+    }
+
+    return fillManual(
+      templateBytes,
+      sections,
+      detailedPieces,
+      detailedFixPieces,
+      backupTables,
+      backupFixTables,
+      installationTables,
+      reversionTables,
+      installationFixTables,
+      reversionFixTables,
+      servicesProducts,
+      affectedAreas,
+      repositoryNames,
+      communicationMatrix,
+      previousStepsHtml,
+    );
+  }
+
+  async function previewCurrentManualPdf() {
+    const docxBytes = await buildCurrentManualDocx();
+    const preview = await window.ipc.previewDocxPdf(
+      docxBytes,
+      toSafeDocxFileName(manualTitle),
+    );
+
+    if (!preview) {
+      throw new Error("No fue posible generar la vista previa.");
+    }
+    if ("error" in preview) {
+      throw new Error(preview.error);
+    }
+
+    const bytes = bytesFromUnknown(preview.bytes);
+    if (!bytes) {
+      throw new Error("No fue posible leer el PDF de vista previa.");
+    }
+
+    return {
+      bytes,
+      mimeType: preview.mimeType,
+      fileName: preview.fileName,
+    };
   }
 
   async function listDrafts() {
@@ -404,6 +765,12 @@ export function useManualManager() {
         detailedPieces,
         detailedFixPieces,
         backupTables,
+        backupFixTables,
+        installationTables,
+        reversionTables,
+        installationFixTables,
+        reversionFixTables,
+        visibleStepKeys,
         servicesProducts: cleanedServicesProducts,
         affectedAreas: cleanedAffectedAreas,
         repositoryNames: cleanedRepositoryNames,
@@ -416,14 +783,19 @@ export function useManualManager() {
     const saved = await window.ipc.draftSave(payload);
     if (saved?.id) {
       setDraftId(saved.id);
-      setLastSavedDraftSnapshot(
-        buildDraftSnapshot({
+      setLastSavedDraftContentSnapshot(
+        buildDraftContentSnapshot({
           manualTitle: rawTitle,
-          activeStep,
           sections,
           detailedPieces,
           detailedFixPieces,
           backupTables,
+          backupFixTables,
+          installationTables,
+          reversionTables,
+          installationFixTables,
+          reversionFixTables,
+          visibleStepKeys,
           servicesProducts: cleanedServicesProducts,
           affectedAreas: cleanedAffectedAreas,
           repositoryNames: cleanedRepositoryNames,
@@ -447,6 +819,12 @@ export function useManualManager() {
       detailedPieces?: unknown;
       detailedFixPieces?: unknown;
       backupTables?: unknown;
+      backupFixTables?: unknown;
+      installationTables?: unknown;
+      reversionTables?: unknown;
+      installationFixTables?: unknown;
+      reversionFixTables?: unknown;
+      visibleStepKeys?: unknown;
       servicesProducts?: unknown;
       affectedAreas?: unknown;
       repositoryNames?: unknown;
@@ -459,6 +837,22 @@ export function useManualManager() {
     setDetailedPieces((state.detailedPieces as PiezasGrupo[]) ?? []);
     setDetailedFixPieces((state.detailedFixPieces as PiezasGrupo[]) ?? []);
     setBackupTables((state.backupTables as BackupTableGroup[]) ?? []);
+    setBackupFixTables((state.backupFixTables as BackupTableGroup[]) ?? []);
+    setInstallationTables(
+      (state.installationTables as InstallationTableGroup[]) ?? [],
+    );
+    setReversionTables((state.reversionTables as InstallationTableGroup[]) ?? []);
+    setInstallationFixTables(
+      (state.installationFixTables as InstallationTableGroup[]) ?? [],
+    );
+    setReversionFixTables(
+      (state.reversionFixTables as InstallationTableGroup[]) ?? [],
+    );
+    setVisibleStepKeys(
+      Array.isArray(state.visibleStepKeys) && state.visibleStepKeys.length > 0
+        ? (state.visibleStepKeys as string[])
+        : getDefaultVisibleStepKeys(),
+    );
     const loadedServicesProducts = sanitizeTextList(state.servicesProducts);
     const loadedAffectedAreas = sanitizeTextList(state.affectedAreas);
     const loadedRepositoryNames = sanitizeTextList(state.repositoryNames);
@@ -480,16 +874,26 @@ export function useManualManager() {
         : 0,
     );
     setDraftId(draft.id);
-    setLastSavedDraftSnapshot(
-      buildDraftSnapshot({
+    setLastSavedDraftContentSnapshot(
+      buildDraftContentSnapshot({
         manualTitle: (state.manualTitle || "Sin título").trim() || "Sin título",
-        activeStep: Number.isFinite(state.activeStep)
-          ? Math.max(0, Number(state.activeStep))
-          : 0,
         sections: (state.sections as UISection[] | null) ?? null,
         detailedPieces: (state.detailedPieces as PiezasGrupo[]) ?? [],
         detailedFixPieces: (state.detailedFixPieces as PiezasGrupo[]) ?? [],
         backupTables: (state.backupTables as BackupTableGroup[]) ?? [],
+        backupFixTables: (state.backupFixTables as BackupTableGroup[]) ?? [],
+        installationTables:
+          (state.installationTables as InstallationTableGroup[]) ?? [],
+        reversionTables:
+          (state.reversionTables as InstallationTableGroup[]) ?? [],
+        installationFixTables:
+          (state.installationFixTables as InstallationTableGroup[]) ?? [],
+        reversionFixTables:
+          (state.reversionFixTables as InstallationTableGroup[]) ?? [],
+        visibleStepKeys:
+          (Array.isArray(state.visibleStepKeys) && state.visibleStepKeys.length > 0
+            ? (state.visibleStepKeys as string[])
+            : getDefaultVisibleStepKeys()),
         servicesProducts: loadedServicesProducts,
         affectedAreas: loadedAffectedAreas,
         repositoryNames: loadedRepositoryNames,
@@ -504,7 +908,7 @@ export function useManualManager() {
     const ok = await window.ipc.draftDelete(id);
     if (ok && draftId === id) {
       setDraftId(null);
-      setLastSavedDraftSnapshot(null);
+      setLastSavedDraftContentSnapshot(null);
     }
     return ok;
   }
@@ -515,6 +919,12 @@ export function useManualManager() {
     detailedPieces,
     detailedFixPieces,
     backupTables,
+    backupFixTables,
+    installationTables,
+    reversionTables,
+    installationFixTables,
+    reversionFixTables,
+    visibleStepKeys,
     servicesProducts,
     affectedAreas,
     repositoryNames,
@@ -533,6 +943,12 @@ export function useManualManager() {
     setDetailedPieces,
     setDetailedFixPieces,
     setBackupTables,
+    setBackupFixTables,
+    setInstallationTables,
+    setReversionTables,
+    setInstallationFixTables,
+    setReversionFixTables,
+    setVisibleStepKeys,
     setServicesProducts,
     setAffectedAreas,
     setRepositoryNames,
@@ -545,8 +961,11 @@ export function useManualManager() {
     setGitLoading,
 
     handleOpen,
+    handleOpenUnion,
     loadFromTemplateBytes,
     handleExport,
+    buildCurrentManualDocx,
+    previewCurrentManualPdf,
     listDrafts,
     saveCurrentDraft,
     loadDraftById,

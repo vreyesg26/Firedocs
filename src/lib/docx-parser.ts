@@ -7,6 +7,10 @@ import type {
   KeyValueField,
   UISection,
   CommunicationMatrixRow,
+  BackupTableGroup,
+  BackupProcedureRow,
+  InstallationTableGroup,
+  InstallationProcedureRow,
 } from "@/types/manual";
 
 type SupportedInput =
@@ -111,6 +115,22 @@ function textFromParagraphPO(pNode: any): string {
   return extractTextPreserveOrder(pNode);
 }
 
+function normalizeKeepLineBreaks(value: string) {
+  return (value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => normalize(line))
+    .filter((line, index, all) => {
+      if (line.length > 0) return true;
+      const previous = all[index - 1];
+      const next = all[index + 1];
+      return Boolean(previous?.length) && Boolean(next?.length);
+    })
+    .join("\n")
+    .trim();
+}
+
 function tableFromPreserveOrder(tblNode: any): string[][] {
   const rows: string[][] = [];
   const trNodes = Array.isArray(tblNode)
@@ -125,7 +145,9 @@ function tableFromPreserveOrder(tblNode: any): string[][] {
     const row: string[] = [];
     for (const tc of tcNodes) {
       const paras = collectNodesByKey(tc, "w:p");
-      const cellText = normalize(paras.map((p) => textFromParagraphPO(p)).join(" "));
+      const cellText = normalizeKeepLineBreaks(
+        paras.map((p) => textFromParagraphPO(p)).join("\n"),
+      );
       row.push(cellText);
     }
 
@@ -133,6 +155,238 @@ function tableFromPreserveOrder(tblNode: any): string[][] {
   }
 
   return rows;
+}
+
+function rowIncludesText(row: string[], text: string) {
+  return row.some((cell) => normalizeSearch(cell).includes(normalizeSearch(text)));
+}
+
+function compactRow(row: string[]) {
+  return row.map((cell) => normalize(cell)).filter(Boolean);
+}
+
+function normalizeRowKeepingColumns(row: string[]) {
+  return row.map((cell) => normalizeKeepLineBreaks(cell));
+}
+
+function combineBackupCellValues(values: string[]) {
+  return values
+    .map((value) => normalize(value))
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function extractBackupTableGroup(table: string[][]): BackupTableGroup | null {
+  if (!table.length) return null;
+
+  const headerOneIndex = table.findIndex(
+    (row) =>
+      rowIncludesText(row, "Equipo encargado de respaldo") &&
+      rowIncludesText(row, "Base de datos/Directorio") &&
+      rowIncludesText(row, "Aplicativo"),
+  );
+  if (headerOneIndex === -1) return null;
+
+  const headerTwoIndex = table.findIndex(
+    (row, index) =>
+      index > headerOneIndex &&
+      rowIncludesText(row, "Paso") &&
+      rowIncludesText(row, "Objeto a respaldar"),
+  );
+  const headerThreeIndex = table.findIndex(
+    (row, index) =>
+      index > headerOneIndex &&
+      rowIncludesText(row, "Servidor (Nombre, IP)") &&
+      rowIncludesText(row, "Comentarios adicionales"),
+  );
+
+  if (headerTwoIndex === -1 || headerThreeIndex === -1) return null;
+
+  const firstDataRow = compactRow(table[headerOneIndex + 1] ?? []);
+  if (firstDataRow.length < 3) return null;
+
+  const procedureRows: BackupProcedureRow[] = table
+    .slice(headerTwoIndex + 1, headerThreeIndex)
+    .map((row) => compactRow(row))
+    .filter((row) => row.length > 0)
+    .map((row) => ({
+      step: row[0] ?? "",
+      objectToBackup:
+        row.length > 1 ? combineBackupCellValues(row.slice(1)) : "",
+    }))
+    .filter((row) => row.step || row.objectToBackup);
+
+  if (!procedureRows.length) return null;
+
+  const footerRows = table
+    .slice(headerThreeIndex + 1)
+    .map((row) => compactRow(row))
+    .filter((row) => row.length > 0);
+
+  return {
+    title: "",
+    headerOne: {
+      responsibleTeam: firstDataRow[0] ?? "",
+      databaseOrDirectory: firstDataRow[1] ?? "",
+      application: firstDataRow[2] ?? "",
+    },
+    procedureRows,
+    headerThree: {
+      server: combineBackupCellValues(footerRows.map((row) => row[0] ?? "")),
+      additionalComments: combineBackupCellValues(
+        footerRows.map((row) =>
+          row.length > 1 ? combineBackupCellValues(row.slice(1)) : "",
+        ),
+      ),
+    },
+  };
+}
+
+function extractFixBackupTableGroup(table: string[][]): BackupTableGroup | null {
+  if (!table.length) return null;
+
+  const headerOneIndex = table.findIndex(
+    (row) =>
+      rowIncludesText(row, "Equipo encargado de respaldo") &&
+      rowIncludesText(row, "Base de datos/Directorio") &&
+      rowIncludesText(row, "Aplicativo"),
+  );
+  if (headerOneIndex === -1) return null;
+
+  const headerTwoIndex = table.findIndex(
+    (row, index) =>
+      index > headerOneIndex &&
+      rowIncludesText(row, "Paso") &&
+      rowIncludesText(row, "Objeto a respaldar"),
+  );
+  const headerThreeIndex = table.findIndex(
+    (row, index) =>
+      index > headerTwoIndex &&
+      rowIncludesText(row, "Aplicativo a implementar") &&
+      rowIncludesText(row, "Comentarios adicionales"),
+  );
+
+  if (headerTwoIndex === -1 || headerThreeIndex === -1) return null;
+
+  const firstDataRow = compactRow(table[headerOneIndex + 1] ?? []);
+  if (firstDataRow.length < 3) return null;
+
+  const procedureRows: BackupProcedureRow[] = table
+    .slice(headerTwoIndex + 1, headerThreeIndex)
+    .map((row) => compactRow(row))
+    .filter((row) => row.length > 0)
+    .map((row) => ({
+      step: row[0] ?? "",
+      objectToBackup:
+        row.length > 1 ? combineBackupCellValues(row.slice(1)) : "",
+    }))
+    .filter((row) => row.step || row.objectToBackup);
+
+  const footerRows = table
+    .slice(headerThreeIndex + 1)
+    .map((row) => compactRow(row))
+    .filter((row) => row.length > 0);
+
+  return {
+    title: "",
+    headerOne: {
+      responsibleTeam: firstDataRow[0] ?? "",
+      databaseOrDirectory: firstDataRow[1] ?? "",
+      application: firstDataRow[2] ?? "",
+    },
+    procedureRows,
+    headerThree: {
+      server: combineBackupCellValues(footerRows.map((row) => row[0] ?? "")),
+      additionalComments: combineBackupCellValues(
+        footerRows.map((row) =>
+          row.length > 1 ? combineBackupCellValues(row.slice(1)) : "",
+        ),
+      ),
+    },
+  };
+}
+
+function extractInstallationTableGroup(table: string[][]): InstallationTableGroup | null {
+  if (!table.length) return null;
+
+  const headerOneIndex = table.findIndex(
+    (row) =>
+      rowIncludesText(row, "Equipo Implementador") &&
+      rowIncludesText(row, "Rama de Integración") &&
+      rowIncludesText(row, "Repositorio"),
+  );
+  if (headerOneIndex === -1) return null;
+
+  const headerTwoIndex = table.findIndex(
+    (row, index) =>
+      index > headerOneIndex &&
+      rowIncludesText(row, "Paso") &&
+      rowIncludesText(row, "Objeto a instalar") &&
+      rowIncludesText(row, "Ruta en Versionador"),
+  );
+  const headerThreeIndex = table.findIndex(
+    (row, index) =>
+      index > headerTwoIndex &&
+      rowIncludesText(row, "Base de datos/Directorio") &&
+      rowIncludesText(row, "Servidor"),
+  );
+  const headerFourIndex = table.findIndex(
+    (row, index) =>
+      index > headerThreeIndex &&
+      rowIncludesText(row, "Aplicativo a implementar") &&
+      rowIncludesText(row, "Comentarios adicionales"),
+  );
+
+  if (
+    headerTwoIndex === -1 ||
+    headerThreeIndex === -1 ||
+    headerFourIndex === -1
+  ) {
+    return null;
+  }
+
+  const firstDataRow = normalizeRowKeepingColumns(table[headerOneIndex + 1] ?? []);
+  if (firstDataRow.length < 3) return null;
+
+  const procedureRows: InstallationProcedureRow[] = table
+    .slice(headerTwoIndex + 1, headerThreeIndex)
+    .map((row) => normalizeRowKeepingColumns(row))
+    .filter((row) => row.some(Boolean))
+    .map((row) => ({
+      step: row[0] ?? "",
+      objectToInstall: row[1] ?? "",
+      versionerPath: row[2] ?? "",
+    }))
+    .filter(
+      (row) => row.step || row.objectToInstall || row.versionerPath,
+    );
+
+  if (!procedureRows.length) return null;
+
+  const headerThreeDataRow = normalizeRowKeepingColumns(
+    table[headerThreeIndex + 1] ?? [],
+  );
+  const headerFourDataRow = normalizeRowKeepingColumns(
+    table[headerFourIndex + 1] ?? [],
+  );
+
+  return {
+    title: "",
+    headerOne: {
+      implementingTeam: firstDataRow[0] ?? "",
+      integrationBranch: firstDataRow[1] ?? "",
+      repository: firstDataRow[2] ?? "",
+    },
+    procedureRows,
+    headerThree: {
+      databaseOrDirectory: headerThreeDataRow[0] ?? "",
+      server: headerThreeDataRow[1] ?? "",
+    },
+    headerFour: {
+      applicationToImplement: headerFourDataRow[0] ?? "",
+      additionalComments: headerFourDataRow[1] ?? "",
+    },
+  };
 }
 
 export async function parseDocxArrayBuffer(
@@ -375,11 +629,285 @@ export async function parseDocxArrayBuffer(
     return blocks.join("");
   }
 
+  function extractInstallationBackupTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const previousStepsIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "requisitos y trabajos que deben estar completados previo a la implementacion del cambio",
+      );
+    });
+    if (previousStepsIndex === -1) return [];
+
+    const backupStartIndex = ordered.findIndex((item, index) => {
+      if (index <= previousStepsIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "respaldo de objetos",
+      );
+    });
+    if (backupStartIndex === -1) return [];
+
+    const installationStartIndex = ordered.findIndex((item, index) => {
+      if (index <= backupStartIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la instalacion",
+      );
+    });
+
+    const groups: BackupTableGroup[] = [];
+    for (
+      let i = backupStartIndex + 1;
+      i < (installationStartIndex === -1 ? ordered.length : installationStartIndex);
+      i += 1
+    ) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractBackupTableGroup(tableFromPreserveOrder(item.node));
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
+  function extractFixBackupTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const fixImplementationIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la implementacion de bugfix / hotfix",
+      );
+    });
+    if (fixImplementationIndex === -1) return [];
+
+    const backupStartIndex = ordered.findIndex((item, index) => {
+      if (index <= fixImplementationIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "respaldo de objetos",
+      );
+    });
+    if (backupStartIndex === -1) return [];
+
+    const installationStartIndex = ordered.findIndex((item, index) => {
+      if (index <= backupStartIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la instalacion",
+      );
+    });
+
+    const groups: BackupTableGroup[] = [];
+    for (
+      let i = backupStartIndex + 1;
+      i < (installationStartIndex === -1 ? ordered.length : installationStartIndex);
+      i += 1
+    ) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractFixBackupTableGroup(
+        tableFromPreserveOrder(item.node),
+      );
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
+  function extractInstallationTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const installationStartIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la instalacion",
+      );
+    });
+    if (installationStartIndex === -1) return [];
+
+    const reversionStartIndex = ordered.findIndex((item, index) => {
+      if (index <= installationStartIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la reversion",
+      );
+    });
+
+    const groups: InstallationTableGroup[] = [];
+    for (
+      let i = installationStartIndex + 1;
+      i < (reversionStartIndex === -1 ? ordered.length : reversionStartIndex);
+      i += 1
+    ) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractInstallationTableGroup(
+        tableFromPreserveOrder(item.node),
+      );
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
+  function extractReversionTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const reversionStartIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la reversion",
+      );
+    });
+    if (reversionStartIndex === -1) return [];
+
+    const fixImplementationStartIndex = ordered.findIndex((item, index) => {
+      if (index <= reversionStartIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la implementacion de bugfix / hotfix",
+      );
+    });
+
+    const groups: InstallationTableGroup[] = [];
+    for (
+      let i = reversionStartIndex + 1;
+      i <
+      (fixImplementationStartIndex === -1
+        ? ordered.length
+        : fixImplementationStartIndex);
+      i += 1
+    ) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractInstallationTableGroup(
+        tableFromPreserveOrder(item.node),
+      );
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
+  function extractFixInstallationTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const fixImplementationIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la implementacion de bugfix / hotfix",
+      );
+    });
+    if (fixImplementationIndex === -1) return [];
+
+    const installationStartIndex = ordered.findIndex((item, index) => {
+      if (index <= fixImplementationIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la instalacion",
+      );
+    });
+    if (installationStartIndex === -1) return [];
+
+    const reversionStartIndex = ordered.findIndex((item, index) => {
+      if (index <= installationStartIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la reversion",
+      );
+    });
+
+    const groups: InstallationTableGroup[] = [];
+    for (
+      let i = installationStartIndex + 1;
+      i < (reversionStartIndex === -1 ? ordered.length : reversionStartIndex);
+      i += 1
+    ) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractInstallationTableGroup(
+        tableFromPreserveOrder(item.node),
+      );
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
+  function extractFixReversionTables(
+    ordered: Array<{ type: "p" | "tbl"; node: any }>,
+  ) {
+    const fixImplementationIndex = ordered.findIndex((item) => {
+      if (item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la implementacion de bugfix / hotfix",
+      );
+    });
+    if (fixImplementationIndex === -1) return [];
+
+    const reversionStartIndex = ordered.findIndex((item, index) => {
+      if (index <= fixImplementationIndex || item.type !== "p") return false;
+      return normalizeSearch(textFromParagraphPO(item.node)).includes(
+        "pasos requeridos para la reversion",
+      );
+    });
+    if (reversionStartIndex === -1) return [];
+
+    const groups: InstallationTableGroup[] = [];
+    for (let i = reversionStartIndex + 1; i < ordered.length; i += 1) {
+      const item = ordered[i];
+      if (item.type !== "tbl") continue;
+
+      const parsedGroup = extractInstallationTableGroup(
+        tableFromPreserveOrder(item.node),
+      );
+      if (!parsedGroup) continue;
+
+      groups.push({
+        ...parsedGroup,
+        title: `Tabla ${groups.length + 1}`,
+      });
+    }
+
+    return groups;
+  }
+
   const repositoryNames = extractRepositoryNamesFromParagraphs(paragraphs);
   const communicationMatrix = extractCommunicationMatrix(
     findCommunicationMatrixTable(orderedNodes),
   );
   const previousStepsHtml = extractPreviousStepsHtml(orderedNodes);
+  const backupTables = extractInstallationBackupTables(orderedNodes);
+  const backupFixTables = extractFixBackupTables(orderedNodes);
+  const installationTables = extractInstallationTables(orderedNodes);
+  const reversionTables = extractReversionTables(orderedNodes);
+  const installationFixTables = extractFixInstallationTables(orderedNodes);
+  const reversionFixTables = extractFixReversionTables(orderedNodes);
 
   // BUSCAR EL INICIO DEL BLOQUE DE PIEZAS DETALLADAS
   let startIndexDetailed = -1;
@@ -1198,6 +1726,12 @@ export async function parseDocxArrayBuffer(
     camposDetectados,
     piezasDetalladas,
     detailedFixPieces,
+    backupTables,
+    backupFixTables,
+    installationTables,
+    reversionTables,
+    installationFixTables,
+    reversionFixTables,
     servicesProducts,
     affectedAreas,
     repositoryNames,

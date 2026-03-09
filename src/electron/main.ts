@@ -113,10 +113,20 @@ type StoredDraftFile = {
   state: {
     manualTitle: string;
     activeStep: number;
+    visibleStepKeys?: string[];
     data: unknown;
     sections: unknown;
     detailedPieces: unknown;
     detailedFixPieces?: unknown;
+    servicesProducts?: unknown;
+    affectedAreas?: unknown;
+    repositoryNames?: unknown;
+    communicationMatrix?: unknown;
+    installationTables?: unknown;
+    reversionTables?: unknown;
+    backupFixTables?: unknown;
+    installationFixTables?: unknown;
+    reversionFixTables?: unknown;
     templateBytesBase64: string | null;
   };
 };
@@ -255,6 +265,30 @@ async function runLibreOfficeConvertToPdf(
       );
     });
   });
+}
+
+async function generatePdfFromDocxBytes(docxBytes: Uint8Array) {
+  const docxBuffer = Buffer.from(docxBytes);
+  const documentHash = createHash("sha1").update(docxBuffer).digest("hex");
+  const workingDir = await fsp.mkdtemp(
+    path.join(os.tmpdir(), `firedocs-manual-preview-${documentHash.slice(0, 8)}-`),
+  );
+
+  try {
+    const inputDocxPath = path.join(workingDir, `${documentHash}.docx`);
+    const outputPdfPath = path.join(workingDir, `${documentHash}.pdf`);
+    await fsp.writeFile(inputDocxPath, docxBuffer);
+    await runLibreOfficeConvertToPdf(inputDocxPath, workingDir);
+
+    if (!existsSync(outputPdfPath)) {
+      throw new Error("LibreOffice no generó el PDF esperado.");
+    }
+
+    const pdf = await fsp.readFile(outputPdfPath);
+    return new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
+  } finally {
+    await fsp.rm(workingDir, { recursive: true, force: true });
+  }
 }
 
 async function generateTemplatePreviewPdf(templateId: string) {
@@ -825,7 +859,9 @@ function registerGitIpcHandlers() {
 // -------------------- IPCs DOCX --------------------
 function registerDocxIpcHandlers() {
   ipcMain.removeHandler("select-docx");
+  ipcMain.removeHandler("select-multiple-docx");
   ipcMain.removeHandler("save-docx");
+  ipcMain.removeHandler("docx:preview-pdf");
 
   ipcMain.handle("select-docx", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -844,6 +880,28 @@ function registerDocxIpcHandlers() {
     return { filePath, bytes };
   });
 
+  ipcMain.handle("select-multiple-docx", async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      filters: [{ name: "Word", extensions: ["docx"] }],
+      properties: ["openFile", "multiSelections"],
+    });
+    if (canceled || !filePaths.length) return null;
+
+    const files = await Promise.all(
+      filePaths.map(async (filePath) => {
+        const nodeBuf = await fsp.readFile(filePath);
+        const bytes = new Uint8Array(
+          nodeBuf.buffer,
+          nodeBuf.byteOffset,
+          nodeBuf.byteLength,
+        );
+        return { filePath, bytes };
+      }),
+    );
+
+    return files;
+  });
+
   ipcMain.handle(
     "save-docx",
     async (_evt, args: { bytes: Uint8Array; defaultName?: string }) => {
@@ -855,6 +913,31 @@ function registerDocxIpcHandlers() {
       if (canceled || !filePath) return null;
       await fsp.writeFile(filePath, Buffer.from(bytes));
       return { saved: true, filePath };
+    }
+  );
+
+  ipcMain.handle(
+    "docx:preview-pdf",
+    async (_evt, args: { bytes: Uint8Array; fileName?: string }) => {
+      const { bytes, fileName } = args ?? {};
+      if (!bytes) return null;
+
+      try {
+        const pdfBytes = await generatePdfFromDocxBytes(bytes);
+        return {
+          fileName: fileName ?? "Manual-actualizado.docx",
+          bytes: pdfBytes,
+          mimeType: "application/pdf",
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          fileName: fileName ?? "Manual-actualizado.docx",
+          error: message.includes("soffice")
+            ? "No se encontró LibreOffice instalado para generar la vista previa."
+            : `No se pudo generar la vista previa PDF. ${message}`,
+        };
+      }
     }
   );
 }
@@ -1041,6 +1124,28 @@ function registerDraftIpcHandlers() {
             typeof stored?.state?.activeStep === "number"
               ? stored.state.activeStep
               : 0,
+          visibleStepKeys: Array.isArray(stored?.state?.visibleStepKeys)
+            ? stored.state.visibleStepKeys
+            : undefined,
+          progressState: stored?.state
+            ? {
+                sections: stored.state.sections,
+                detailedPieces: stored.state.detailedPieces,
+                detailedFixPieces: stored.state.detailedFixPieces,
+                servicesProducts: stored.state.servicesProducts,
+                affectedAreas: stored.state.affectedAreas,
+                repositoryNames: stored.state.repositoryNames,
+                communicationMatrix: stored.state.communicationMatrix,
+                installationTables: stored.state.installationTables,
+                reversionTables: stored.state.reversionTables,
+                backupFixTables: stored.state.backupFixTables,
+                installationFixTables: stored.state.installationFixTables,
+                reversionFixTables: stored.state.reversionFixTables,
+                visibleStepKeys: Array.isArray(stored.state.visibleStepKeys)
+                  ? stored.state.visibleStepKeys
+                  : undefined,
+              }
+            : undefined,
         };
       }),
     );
