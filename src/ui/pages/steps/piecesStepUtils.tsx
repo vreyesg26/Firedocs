@@ -14,6 +14,7 @@ export function extFromFileName(fileName: string) {
 
   const ext = lastPart.toUpperCase();
   if (ext === "XQ" || ext === "XQY") return "XQUERY";
+  if (ext === "BIZ") return "BUSINESS";
   return ext;
 }
 

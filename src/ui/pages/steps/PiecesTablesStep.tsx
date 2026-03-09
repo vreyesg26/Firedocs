@@ -88,12 +88,7 @@ function mapEstadoFromChange(ch: RepoChange) {
 
 function mapChangeToStandardItem(ch: RepoChange): PiezasItem {
   const name = ch.path.split(/[\\/]/).pop() || ch.path || "Objeto sin nombre";
-
-  const extRaw = ch.ext || name.split(".").pop() || "";
-  const ext = extRaw.replace(/^\./, "");
-  const extUpper = ext.toUpperCase();
-  const tipo =
-    extUpper === "XQ" || extUpper === "XQY" ? "XQUERY" : extUpper || "Archivo";
+  const tipo = extFromFileName(ch.ext || name) || "Archivo";
 
   return {
     nombre: name,
@@ -121,12 +116,17 @@ function mapItemToManualRow(
   variant: PiecesTablesStepVariant,
 ): ManualRow {
   const estado = item.estado === "Nuevo" ? "Nuevo" : "Modificado";
+  const inferredType = extFromFileName(item.nombre ?? "");
+  const normalizedType =
+    inferredType === "XQUERY" || inferredType === "BUSINESS"
+      ? inferredType
+      : item.tipo ?? "";
 
   return {
     nombre: item.nombre ?? "",
-    tipo: item.tipo ?? "",
+    tipo: normalizedType,
     estado,
-    tipoLocked: Boolean(item.tipo?.trim()),
+    tipoLocked: Boolean(normalizedType.trim()),
     identificador:
       variant === "fixes" ? normalizeIdentifier(item.identificador) : "Hotfix",
     fechaHoraModificacion:
@@ -142,9 +142,14 @@ function toGroupsData(
   variant: PiecesTablesStepVariant,
 ): PiezasItem[] {
   return items.map((row) => {
+    const inferredType = extFromFileName(row.nombre);
+    const normalizedType =
+      inferredType === "XQUERY" || inferredType === "BUSINESS"
+        ? inferredType
+        : row.tipo.trim();
     const base: PiezasItem = {
       nombre: row.nombre.trim(),
-      tipo: row.tipo.trim(),
+      tipo: normalizedType,
       estado: row.estado,
     };
 
@@ -182,7 +187,10 @@ export function PiecesTablesStep({
   );
 
   const [gitModalOpen, setGitModalOpen] = useState(false);
-  const [gitLoading, setGitLoading] = useState(false);
+  const [repoSelectionLoading, setRepoSelectionLoading] = useState(false);
+  const [commitRepoSelectionLoading, setCommitRepoSelectionLoading] =
+    useState(false);
+  const [commitScanLoading, setCommitScanLoading] = useState(false);
   const [gitData, setGitData] = useState<RepoStatus[]>([]);
   const [gitRepos, setGitRepos] = useState<string[]>([]);
   const [gitTargetMode, setGitTargetMode] = useState<GitTargetMode>("create");
@@ -268,7 +276,7 @@ export function PiecesTablesStep({
   }
 
   async function handlePickGithub(targetMode: GitTargetMode) {
-    setGitLoading(true);
+    setRepoSelectionLoading(true);
     setCommitError(null);
     try {
       const picks = (await window.ipc.pickRepos()) as
@@ -296,11 +304,12 @@ export function PiecesTablesStep({
       console.error(error);
       alert(errorMessage(error));
     } finally {
-      setGitLoading(false);
+      setRepoSelectionLoading(false);
     }
   }
 
   async function handleSelectRepoForCommit() {
+    setCommitRepoSelectionLoading(true);
     setCommitError(null);
     setCommitSubmitted(false);
     try {
@@ -315,6 +324,8 @@ export function PiecesTablesStep({
     } catch (error: unknown) {
       console.error(error);
       alert(errorMessage(error));
+    } finally {
+      setCommitRepoSelectionLoading(false);
     }
   }
 
@@ -338,7 +349,7 @@ export function PiecesTablesStep({
     const commitRef = commitId.trim();
     if (!commitRef) return;
 
-    setGitLoading(true);
+    setCommitScanLoading(true);
     try {
       if (typeof window.ipc.scanCommit !== "function") {
         setCommitError(
@@ -372,7 +383,7 @@ export function PiecesTablesStep({
       console.error(error);
       alert(errorMessage(error));
     } finally {
-      setGitLoading(false);
+      setCommitScanLoading(false);
     }
   }
 
@@ -448,9 +459,14 @@ export function PiecesTablesStep({
       const next = [...prev];
       const row = { ...next[index] };
       row.nombre = value;
+      const inferredType = extFromFileName(value);
 
-      if (!row.tipoLocked) {
-        row.tipo = extFromFileName(value);
+      if (
+        inferredType === "XQUERY" ||
+        inferredType === "BUSINESS" ||
+        !row.tipoLocked
+      ) {
+        row.tipo = inferredType;
       }
 
       next[index] = row;
@@ -745,7 +761,7 @@ export function PiecesTablesStep({
                       <>
                         <Button
                           onClick={() => handlePickGithub("create")}
-                          loading={gitLoading}
+                          loading={repoSelectionLoading}
                           color="orange"
                         >
                           Seleccionar repositorio
@@ -754,7 +770,7 @@ export function PiecesTablesStep({
                           variant="outline"
                           color="gray"
                           onClick={handleSelectRepoForCommit}
-                          loading={gitLoading}
+                          loading={commitRepoSelectionLoading}
                         >
                           Recuperar desde commit específico
                         </Button>
@@ -831,7 +847,7 @@ export function PiecesTablesStep({
                         <Button
                           color={mainColor}
                           onClick={() => handlePickCommit("create")}
-                          loading={gitLoading}
+                          loading={commitScanLoading}
                           disabled={!commitRepo}
                         >
                           Ver commit
@@ -1153,7 +1169,7 @@ export function PiecesTablesStep({
         opened={gitModalOpen}
         onClose={() => setGitModalOpen(false)}
         data={gitData}
-        loading={gitLoading}
+        loading={repoSelectionLoading || commitScanLoading}
         onCreate={async ({ repo, changes, groupName }) => {
           const paths = changes.map((ch) => ch.path);
           const lastModifiedByPath = await getLastModifiedByPath(

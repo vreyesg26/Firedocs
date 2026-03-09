@@ -18,6 +18,7 @@ import {
 import { IconCopy, IconCheck } from "@tabler/icons-react";
 import type { RepoStatus, RepoChange } from "@/types/git";
 import { mainColor } from "@/lib/utils";
+import { extFromFileName } from "@/ui/pages/steps/piecesStepUtils";
 
 const COPY_ABSOLUTE = false;
 
@@ -61,9 +62,7 @@ function changeLabel(ch: RepoChange) {
 }
 
 function typeBadgeLabel(ch: RepoChange) {
-  const raw = (ch.ext || "").replace(/^\./, "").toUpperCase();
-  if (raw === "XQ" || raw === "XQY") return "XQUERY";
-  return raw || "∅";
+  return extFromFileName(ch.ext || ch.path || "") || "∅";
 }
 
 function joinFs(a: string, b: string) {

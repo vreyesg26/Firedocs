@@ -1,5 +1,4 @@
 // src/components/FieldsForm.tsx
-import { useEffect, useState } from "react";
 import type { UISection } from "@/types/manual";
 import {
   Card,
@@ -20,29 +19,25 @@ interface Props {
 }
 
 export function FieldsForm({ sections, onChange }: Props) {
-  const [state, setState] = useState<UISection[]>(sections ?? []);
   const NON_REG = ["HN", "NI", "PA", "GT"] as const;
-
-  useEffect(() => {
-    if (sections) setState(sections);
-  }, [sections]);
 
   function updateField(
     secIndex: number,
     fieldIndex: number,
     value: FieldValue
   ) {
-    const next = structuredClone(state);
+    if (!sections?.length) return;
+
+    const next = structuredClone(sections);
     (next[secIndex].fields[fieldIndex] as any).value = value;
-    setState(next);
     onChange?.(next);
   }
 
-  if (!state?.length) return null;
+  if (!sections?.length) return null;
 
   return (
     <Stack gap="xl" w="100%">
-      {state.map((sec, si) => (
+      {sections.map((sec, si) => (
         <Card key={sec.id} shadow="sm" padding="lg" radius="md" withBorder>
           <Title order={4} mb="md">
             {sec.title}
