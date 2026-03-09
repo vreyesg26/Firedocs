@@ -95,7 +95,7 @@ export default function ManualPreviewPage() {
         message:
           error instanceof Error
             ? error.message
-            : "No fue posible exportar el manual.",
+            : "No fue posible exportar el manual",
       });
     } finally {
       setExporting(false);

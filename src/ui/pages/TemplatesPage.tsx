@@ -161,7 +161,7 @@ export default function TemplatesPage() {
       if (!ok) {
         notifyError({
           title: "No se pudo eliminar la plantilla",
-          message: "Intenta nuevamente.",
+          message: "Intenta nuevamente",
         });
         return;
       }
@@ -182,7 +182,7 @@ export default function TemplatesPage() {
     if (!bytes) {
       notifyError({
         title: "No se pudo leer la plantilla",
-        message: "La plantilla seleccionada no contiene un archivo valido.",
+        message: "La plantilla seleccionada no contiene un archivo válido",
       });
       return;
     }

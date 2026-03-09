@@ -105,7 +105,7 @@ export default function DraftsPage() {
       if (!ok) {
         notifyError({
           title: "No se pudo cargar el borrador",
-          message: "Intenta nuevamente.",
+          message: "Intenta nuevamente",
         });
         return;
       }
@@ -131,7 +131,7 @@ export default function DraftsPage() {
     if (!ok) {
       notifyError({
         title: "No se pudo eliminar el borrador",
-        message: "Intenta nuevamente.",
+        message: "Intenta nuevamente",
       });
       return;
     }

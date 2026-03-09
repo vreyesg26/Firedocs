@@ -11,13 +11,18 @@ type NotificationOptions = {
   message: string;
 };
 
+function normalizeNotificationText(value: string) {
+  const trimmed = value.trim();
+  return trimmed.replace(/\.$/, "");
+}
+
 export function notifySuccess({
   title = "Completado",
   message,
 }: NotificationOptions) {
   notifications.show({
-    title,
-    message,
+    title: normalizeNotificationText(title),
+    message: normalizeNotificationText(message),
     color: "green",
     icon: <IconCheck size={16} />,
     position: "bottom-center",
@@ -26,8 +31,8 @@ export function notifySuccess({
 
 export function notifyError({ title = "Error", message }: NotificationOptions) {
   notifications.show({
-    title,
-    message,
+    title: normalizeNotificationText(title),
+    message: normalizeNotificationText(message),
     color: "red",
     icon: <IconX size={16} />,
     position: "bottom-center",
@@ -35,12 +40,12 @@ export function notifyError({ title = "Error", message }: NotificationOptions) {
 }
 
 export function notifyWarning({
-  title = "Atencion",
+  title = "Atención",
   message,
 }: NotificationOptions) {
   notifications.show({
-    title,
-    message,
+    title: normalizeNotificationText(title),
+    message: normalizeNotificationText(message),
     color: "yellow",
     icon: <IconAlertTriangle size={16} />,
     position: "bottom-center",
@@ -48,12 +53,12 @@ export function notifyWarning({
 }
 
 export function notifyInfo({
-  title = "Informacion",
+  title = "Información",
   message,
 }: NotificationOptions) {
   notifications.show({
-    title,
-    message,
+    title: normalizeNotificationText(title),
+    message: normalizeNotificationText(message),
     color: "blue",
     icon: <IconInfoCircle size={16} />,
     position: "bottom-center",

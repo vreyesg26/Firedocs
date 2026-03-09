@@ -226,12 +226,12 @@ export default function StepsPage() {
       if (saved?.id) {
         notifySuccess({
           title: "Borrador guardado",
-          message: "El borrador se guardo correctamente.",
+          message: "El borrador se guardó correctamente",
         });
       } else {
         notifyError({
           title: "No se pudo guardar",
-          message: "No fue posible guardar el borrador.",
+          message: "No fue posible guardar el borrador",
         });
       }
     } catch (error: unknown) {

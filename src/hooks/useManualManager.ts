@@ -515,9 +515,9 @@ export function useManualManager() {
       if (!selected?.length) return false;
       if (selected.length < 2) {
         notifyWarning({
-          title: "Union no disponible",
+          title: "Unión no disponible",
           message:
-            "Se deben cargar minimo 2 manuales para poder utilizar esta caracteristica del sistema.",
+            "Se deben cargar mínimo 2 manuales para poder utilizar esta característica del sistema",
         });
         return false;
       }
@@ -541,7 +541,7 @@ export function useManualManager() {
         notifyWarning({
           title: "No se pudieron unir",
           message:
-            "Los manuales deben ser de la misma iniciativa o proyecto y tener la misma informacion general.",
+            "Los manuales deben ser de la misma iniciativa o proyecto y tener la misma información general",
         });
         return false;
       }
@@ -663,9 +663,9 @@ export function useManualManager() {
   }
 
   async function handleExport() {
-    if (!templateBytes) throw new Error("Primero carga un DOCX.");
+    if (!templateBytes) throw new Error("Primero carga un DOCX");
     if (!sections || sections.length === 0)
-      throw new Error("No hay datos de Información general para exportar.");
+      throw new Error("No hay datos de información general para exportar");
 
     const out = await fillManual(
       templateBytes,
@@ -687,14 +687,14 @@ export function useManualManager() {
     await window.ipc.saveDocx(out, toSafeDocxFileName(manualTitle));
     notifySuccess({
       title: "Manual exportado",
-      message: "El manual se exporto correctamente.",
+      message: "El manual se exportó correctamente",
     });
   }
 
   async function buildCurrentManualDocx() {
-    if (!templateBytes) throw new Error("Primero carga un DOCX.");
+    if (!templateBytes) throw new Error("Primero carga un DOCX");
     if (!sections || sections.length === 0) {
-      throw new Error("No hay datos de Información general para exportar.");
+      throw new Error("No hay datos de información general para exportar");
     }
 
     return fillManual(
@@ -755,7 +755,7 @@ export function useManualManager() {
       .replace(/[\u0300-\u036f]/g, "");
 
     if (!rawTitle || normalizedTitle === "sin titulo") {
-      throw new Error("El título del borrador es requerido.");
+      throw new Error("El título del borrador es requerido");
     }
 
     const cleanedServicesProducts = sanitizeTextList(servicesProducts);
