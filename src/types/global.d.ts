@@ -32,6 +32,7 @@ declare global {
         buildCommit: string;
         buildDate: string;
       }>;
+      openExternal(url: string): Promise<boolean>;
 
       // DOCX
       selectDocx(): Promise<any>;

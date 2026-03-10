@@ -13,6 +13,7 @@ declare global {
         buildCommit: string;
         buildDate: string;
       }>;
+      openExternal: (url: string) => Promise<boolean>;
       selectDocx: () => Promise<{ filePath: string; bytes: Uint8Array } | null>;
       selectMultipleDocx: () => Promise<
         Array<{ filePath: string; bytes: Uint8Array }> | null

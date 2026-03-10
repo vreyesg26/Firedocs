@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   ActionIcon,
+  Anchor,
   Badge,
   Box,
   Card,
@@ -151,9 +152,19 @@ export default function HomePage() {
         <Group justify="center" gap="xs" mt="lg">
           <Flex align="center" gap={4}>
             <Text>Desarrollado por</Text>
-            <Text fw={700} c={mainColor}>
+            <Anchor
+              href="https://vgdeveloper.dev/"
+              target="_blank"
+              rel="noreferrer"
+              fw={700}
+              c={mainColor}
+              onClick={(event) => {
+                event.preventDefault();
+                void window.ipc.openExternal("https://vgdeveloper.dev/");
+              }}
+            >
               Victor Reyes
-            </Text>
+            </Anchor>
           </Flex>
         </Group>
         <Group justify="center" mt="xs">

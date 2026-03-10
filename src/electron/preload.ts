@@ -4,6 +4,7 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("ipc", {
   setWindowTitle: (section?: string) => ipcRenderer.invoke("app:set-title", section),
   getAppMeta: () => ipcRenderer.invoke("app:get-meta"),
+  openExternal: (url: string) => ipcRenderer.invoke("app:open-external", url),
 
   // DOCX (lo que ya tenías)
   selectDocx: () => ipcRenderer.invoke("select-docx"),

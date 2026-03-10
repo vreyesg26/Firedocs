@@ -97,8 +97,67 @@ function mapEstadoFromChange(ch: RepoChange) {
   return "Modificado";
 }
 
-function mapChangeToStandardItem(ch: RepoChange): PiezasItem {
-  const name = ch.path.split(/[\\/]/).pop() || ch.path || "Objeto sin nombre";
+function normalizeGitPath(path: string) {
+  return path.replace(/\\/g, "/");
+}
+
+function getGitBaseName(path: string) {
+  const normalizedPath = normalizeGitPath(path);
+  const segments = normalizedPath.split("/").filter(Boolean);
+  return segments.at(-1) || normalizedPath || "Objeto sin nombre";
+}
+
+function getGitParentFolder(path: string) {
+  const normalizedPath = normalizeGitPath(path);
+  const segments = normalizedPath.split("/").filter(Boolean);
+  return segments.length > 1 ? segments.at(-2) || "" : "";
+}
+
+function resolveGitDisplayNames(changes: RepoChange[]) {
+  const namesByPath = new Map<string, string>();
+  const changesByBaseName = new Map<string, RepoChange[]>();
+
+  for (const change of changes) {
+    const baseName = getGitBaseName(change.path);
+    const current = changesByBaseName.get(baseName) ?? [];
+    current.push(change);
+    changesByBaseName.set(baseName, current);
+  }
+
+  for (const [baseName, duplicates] of changesByBaseName) {
+    if (duplicates.length === 1) {
+      namesByPath.set(duplicates[0].path, baseName);
+      continue;
+    }
+
+    const candidateCounts = new Map<string, number>();
+    const candidates = duplicates.map((change) => {
+      const parentFolder = getGitParentFolder(change.path);
+      const candidate = parentFolder
+        ? `${parentFolder}/${baseName}`
+        : baseName;
+      candidateCounts.set(candidate, (candidateCounts.get(candidate) ?? 0) + 1);
+      return { change, candidate };
+    });
+
+    for (const { change, candidate } of candidates) {
+      if ((candidateCounts.get(candidate) ?? 0) === 1) {
+        namesByPath.set(change.path, candidate);
+        continue;
+      }
+
+      namesByPath.set(change.path, normalizeGitPath(change.path));
+    }
+  }
+
+  return namesByPath;
+}
+
+function mapChangeToStandardItem(
+  ch: RepoChange,
+  displayName?: string,
+): PiezasItem {
+  const name = displayName || getGitBaseName(ch.path);
   const tipo = extFromFileName(ch.ext || name) || "Archivo";
 
   return {
@@ -113,13 +172,40 @@ function mapChangeToFixItem(
   ch: RepoChange,
   branch: string | undefined,
   lastModifiedAt: string | undefined,
+  displayName?: string,
 ): PiezasItem {
-  const base = mapChangeToStandardItem(ch);
+  const base = mapChangeToStandardItem(ch, displayName);
   return {
     ...base,
     identificador: inferIdentifierFromBranch(branch),
     fechaHoraModificacion: formatGitDateTime(lastModifiedAt),
   };
+}
+
+function mapChangesToItems({
+  changes,
+  variant,
+  branch,
+  lastModifiedByPath,
+}: {
+  changes: RepoChange[];
+  variant: PiecesTablesStepVariant;
+  branch?: string;
+  lastModifiedByPath?: Record<string, string>;
+}) {
+  const displayNamesByPath = resolveGitDisplayNames(changes);
+
+  return changes.map((change) => {
+    const displayName = displayNamesByPath.get(change.path);
+    return variant === "fixes"
+      ? mapChangeToFixItem(
+          change,
+          branch,
+          change.lastModifiedAt || lastModifiedByPath?.[change.path],
+          displayName,
+        )
+      : mapChangeToStandardItem(change, displayName);
+  });
 }
 
 function mapItemToManualRow(
@@ -317,15 +403,12 @@ export function PiecesTablesStep({
       );
 
       importedItems.push(
-        ...visibleChanges.map((change) =>
-          variant === "fixes"
-            ? mapChangeToFixItem(
-                change,
-                repo.branch,
-                change.lastModifiedAt || lastModifiedByPath[change.path],
-              )
-            : mapChangeToStandardItem(change),
-        ),
+        ...mapChangesToItems({
+          changes: visibleChanges,
+          variant,
+          branch: repo.branch,
+          lastModifiedByPath,
+        }),
       );
     }
 
@@ -1294,15 +1377,12 @@ export function PiecesTablesStep({
             paths,
           );
 
-          const items: PiezasItem[] = changes.map((ch) =>
-            variant === "fixes"
-              ? mapChangeToFixItem(
-                  ch,
-                  repo.branch,
-                  ch.lastModifiedAt || lastModifiedByPath[ch.path],
-                )
-              : mapChangeToStandardItem(ch),
-          );
+          const items = mapChangesToItems({
+            changes,
+            variant,
+            branch: repo.branch,
+            lastModifiedByPath,
+          });
 
           if (gitTargetMode === "edit") {
             setManualRows((prev) => {

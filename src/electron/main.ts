@@ -1,5 +1,5 @@
 // electron/main.ts
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -419,6 +419,11 @@ function createWindow() {
     },
   });
 
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+
   if (isDev) {
     const devUrl = process.env.VITE_DEV_SERVER_URL ?? "http://localhost:5123";
     win.loadURL(devUrl);
@@ -439,6 +444,7 @@ function registerAppIpcHandlers() {
   ipcMain.removeHandler("app:set-title");
   ipcMain.removeHandler("app:get-log-path");
   ipcMain.removeHandler("app:get-meta");
+  ipcMain.removeHandler("app:open-external");
 
   ipcMain.handle("app:set-title", (event, section?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -461,6 +467,12 @@ function registerAppIpcHandlers() {
       "",
     buildDate: process.env.BUILD_DATE?.trim() || "",
   }));
+
+  ipcMain.handle("app:open-external", async (_event, url: string) => {
+    if (typeof url !== "string" || !url.trim()) return false;
+    await shell.openExternal(url);
+    return true;
+  });
 }
 
 // -------------------- Descubrimiento & Scan de repos (AUTOMÁTICO) --------------------
