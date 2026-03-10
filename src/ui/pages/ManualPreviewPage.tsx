@@ -122,7 +122,7 @@ export default function ManualPreviewPage() {
         </Group>
         <Group gap="xs">
           <Button
-            variant="outline"
+            variant="default"
             color="gray"
             leftSection={<IconRefresh size={16} />}
             onClick={loadPreview}

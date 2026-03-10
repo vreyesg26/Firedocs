@@ -18,7 +18,10 @@ import {
 import { IconCopy, IconCheck } from "@tabler/icons-react";
 import type { RepoStatus, RepoChange } from "@/types/git";
 import { mainColor } from "@/lib/utils";
-import { extFromFileName } from "@/ui/pages/steps/piecesStepUtils";
+import {
+  extFromFileName,
+  TruncatedNameCell,
+} from "@/ui/pages/steps/piecesStepUtils";
 
 const COPY_ABSOLUTE = false;
 
@@ -279,7 +282,9 @@ export function GitChangesModal({
                               <Badge variant="dot" color={badgeColorByKind(ch.kind)}>
                                 {typeBadgeLabel(ch)}
                               </Badge>
-                              <Text truncate>{changeLabel(ch)}</Text>
+                              <div style={{ minWidth: 0, flex: 1 }}>
+                                <TruncatedNameCell value={changeLabel(ch)} />
+                              </div>
                               {ch.conflicted && <Badge color="red">conflicto</Badge>}
                             </Group>
 

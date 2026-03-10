@@ -81,7 +81,12 @@ function isRowEffectivelyEmpty(row: ManualRow) {
 }
 
 function isVisibleGitChange(kind: RepoChange["kind"]) {
-  return kind === "added" || kind === "modified" || kind === "unknown" || kind === "untracked";
+  return (
+    kind === "added" ||
+    kind === "modified" ||
+    kind === "unknown" ||
+    kind === "untracked"
+  );
 }
 
 function mapEstadoFromChange(ch: RepoChange) {
@@ -126,7 +131,7 @@ function mapItemToManualRow(
   const normalizedType =
     inferredType === "XQUERY" || inferredType === "BUSINESS"
       ? inferredType
-      : item.tipo ?? "";
+      : (item.tipo ?? "");
 
   return {
     nombre: item.nombre ?? "",
@@ -286,7 +291,8 @@ export function PiecesTablesStep({
   function appendImportedItems(items: PiezasItem[]) {
     const importedRows = items.map((item) => mapItemToManualRow(item, variant));
     setManualRows((prev) => {
-      const hasSingleEmptyRow = prev.length === 1 && isRowEffectivelyEmpty(prev[0]);
+      const hasSingleEmptyRow =
+        prev.length === 1 && isRowEffectivelyEmpty(prev[0]);
       return hasSingleEmptyRow ? importedRows : [...prev, ...importedRows];
     });
     setManualSubmitted(false);
@@ -667,7 +673,7 @@ export function PiecesTablesStep({
         <Flex align="center" gap="xs">
           {groups.length > 1 && (
             <Button
-              variant="outline"
+              variant="default"
               color="gray"
               leftSection={<IconArrowsSort size="1.1rem" />}
               onClick={handleOpenOrderModal}
@@ -718,7 +724,13 @@ export function PiecesTablesStep({
                       <ThemeIcon radius="sm" color={mainColor}>
                         <Text fw={700}>{index + 1}</Text>
                       </ThemeIcon>
-                      <Text>{grupo.grupo}</Text>
+                      <Text>
+                        {grupo.grupo} (
+                        {grupo.items.length > 1
+                          ? `${grupo.items.length} filas`
+                          : `${grupo.items.length} fila`}
+                        )
+                      </Text>
                     </Flex>
                     <Flex gap="xs" align="center">
                       <ActionIcon
@@ -1142,7 +1154,8 @@ export function PiecesTablesStep({
               <Box>
                 {manualMode === "edit" ? (
                   <Button
-                    variant="light"
+                    variant="filled"
+                    color="orange"
                     leftSection={<IconBrandGithub size="1rem" />}
                     onClick={() => {
                       setCommitError(null);
@@ -1363,7 +1376,12 @@ export function PiecesTablesStep({
                   )}
                   {showCommitInput && commitRepo && (
                     <Stack gap="xs">
-                      <Card withBorder shadow="sm" radius="md" style={{ width: "100%" }}>
+                      <Card
+                        withBorder
+                        shadow="sm"
+                        radius="md"
+                        style={{ width: "100%" }}
+                      >
                         <Card.Section withBorder inheritPadding py={5}>
                           <Group justify="space-between" wrap="nowrap">
                             <Text
@@ -1374,7 +1392,11 @@ export function PiecesTablesStep({
                             >
                               {commitRepo.repoName}
                             </Text>
-                            <Menu withinPortal position="bottom-end" shadow="sm">
+                            <Menu
+                              withinPortal
+                              position="bottom-end"
+                              shadow="sm"
+                            >
                               <Menu.Target>
                                 <ActionIcon variant="subtle" color="gray">
                                   <IconDots size={16} />
@@ -1382,7 +1404,9 @@ export function PiecesTablesStep({
                               </Menu.Target>
                               <Menu.Dropdown>
                                 <Menu.Item
-                                  leftSection={<IconRotateClockwise size={14} />}
+                                  leftSection={
+                                    <IconRotateClockwise size={14} />
+                                  }
                                   onClick={handleSelectRepoForCommit}
                                 >
                                   Cambiar repositorio
@@ -1404,7 +1428,9 @@ export function PiecesTablesStep({
                         value={commitId}
                         onChange={(e) => setCommitId(e.currentTarget.value)}
                         error={
-                          commitSubmitted && commitRepo?.repoPath && !commitId.trim()
+                          commitSubmitted &&
+                          commitRepo?.repoPath &&
+                          !commitId.trim()
                             ? "El commit es requerido"
                             : undefined
                         }

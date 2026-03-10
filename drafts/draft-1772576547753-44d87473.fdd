@@ -2,7 +2,7 @@
   "version": 1,
   "name": "Manual de instalación - TPCDG-6599",
   "createdAt": "2026-03-03T22:22:27.752Z",
-  "updatedAt": "2026-03-09T10:37:01.588Z",
+  "updatedAt": "2026-03-10T08:24:37.205Z",
   "state": {
     "manualTitle": "Manual de instalación - TPCDG-6599",
     "activeStep": 8,
@@ -929,6 +929,21 @@
             "estado": "Modificado"
           }
         ]
+      },
+      {
+        "grupo": "Test",
+        "items": [
+          {
+            "nombre": "index.html",
+            "tipo": "HTML",
+            "estado": "Modificado"
+          },
+          {
+            "nombre": "styles.css",
+            "tipo": "CSS",
+            "estado": "Nuevo"
+          }
+        ]
       }
     ],
     "detailedFixPieces": [],
@@ -1030,7 +1045,8 @@
     "repositoryNames": [
       "OSB",
       "DB",
-      "Vortex"
+      "Vortex",
+      "Test"
     ],
     "communicationMatrix": [
       {

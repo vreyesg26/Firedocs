@@ -10,6 +10,7 @@ import {
 } from "@mantine/core";
 import { IconPlus } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
+import { mainColor } from "@/lib/utils";
 
 type ListKey = "services" | "areas";
 
@@ -128,12 +129,13 @@ export const FourthStep = () => {
                 />
               ))}
               <Button
-                variant="light"
+                variant="filled"
                 leftSection={<IconPlus size={16} />}
                 onClick={handleAddServiceProductClick}
+                color={mainColor}
                 w="fit-content"
               >
-                Nueva entrada
+                Añadir fila
               </Button>
             </Stack>
           </Stack>
@@ -165,12 +167,13 @@ export const FourthStep = () => {
                 />
               ))}
               <Button
-                variant="light"
+                variant="filled"
+                color={mainColor}
                 leftSection={<IconPlus size={16} />}
                 onClick={handleAddAffectedAreaClick}
                 w="fit-content"
               >
-                Nueva entrada
+                Añadir fila
               </Button>
             </Stack>
           </Stack>

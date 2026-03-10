@@ -178,7 +178,7 @@ export default function DraftsPage() {
             <Menu withinPortal position="bottom-end" shadow="sm">
               <Menu.Target>
                 <Button
-                  variant="filled"
+                  variant="default"
                   color={mainColor}
                   leftSection={<IconArrowsSort size={16} />}
                 >

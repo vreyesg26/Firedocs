@@ -326,7 +326,7 @@ export function BackupTablesStep({
         <Flex align="center" gap="xs">
           {groups.length > 1 && (
             <Button
-              variant="outline"
+              variant="default"
               color="gray"
               leftSection={<IconArrowsSort size="1.1rem" />}
               onClick={handleOpenOrderModal}

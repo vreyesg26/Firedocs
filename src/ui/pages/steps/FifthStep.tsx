@@ -274,7 +274,8 @@ export const FifthStep = () => {
     event: React.KeyboardEvent<HTMLInputElement>,
   ) {
     if (event.key !== "Backspace" && event.key !== "Delete") return;
-    if (event.currentTarget.selectionStart !== event.currentTarget.selectionEnd) return;
+    if (event.currentTarget.selectionStart !== event.currentTarget.selectionEnd)
+      return;
 
     const row = communicationRows[index];
     if (!row?.repositories?.length || !row.pickerRepositories?.length) return;
@@ -283,7 +284,11 @@ export const FifthStep = () => {
     const caret = event.currentTarget.selectionStart ?? 0;
     let start = 0;
 
-    for (let tokenIndex = 0; tokenIndex < row.repositories.length; tokenIndex += 1) {
+    for (
+      let tokenIndex = 0;
+      tokenIndex < row.repositories.length;
+      tokenIndex += 1
+    ) {
       const token = row.repositories[tokenIndex];
       const end = start + token.length;
       const isPickerRepository = (row.pickerRepositories ?? []).includes(token);
@@ -372,7 +377,8 @@ export const FifthStep = () => {
       >
         <Stack gap="lg">
           <Text size="sm" c="dimmed">
-            Selecciona uno o varios repositorios para agregarlos al campo actual.
+            Selecciona uno o varios repositorios para agregarlos al campo
+            actual.
           </Text>
           {repositoryOptions.length > 0 ? (
             <ScrollArea.Autosize mah={260} offsetScrollbars>
@@ -401,15 +407,15 @@ export const FifthStep = () => {
               {repositoryPickerSelection.length} seleccionados
             </Text>
             <Group gap="sm">
-            <Button variant="default" onClick={handleCloseRepositoryPicker}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleAddRepositoriesFromPicker}
-              disabled={repositoryOptions.length === 0}
-            >
-              Agregar seleccionados
-            </Button>
+              <Button variant="default" onClick={handleCloseRepositoryPicker}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleAddRepositoriesFromPicker}
+                disabled={repositoryOptions.length === 0}
+              >
+                Agregar seleccionados
+              </Button>
             </Group>
           </Group>
         </Stack>
@@ -443,7 +449,7 @@ export const FifthStep = () => {
               onClick={() => handleAddRepository(false)}
               w="fit-content"
             >
-              Nuevo repositorio
+              Añadir fila
             </Button>
           </Stack>
         </Paper>
@@ -518,7 +524,7 @@ export const FifthStep = () => {
                         />
                       </Table.Td>
                       <Table.Td>
-                        <Group  wrap="nowrap" gap={4}>
+                        <Group wrap="nowrap" gap={4}>
                           <TextInput
                             ref={(node) => {
                               matrixRepositoryInputRefs.current[index] = node;
@@ -608,7 +614,7 @@ export const FifthStep = () => {
               onClick={handleAddMatrixRow}
               w="fit-content"
             >
-              Nueva fila
+              Añadir fila
             </Button>
           </Stack>
         </Paper>
