@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Accordion,
   ActionIcon,
+  Box,
   Button,
   Card,
   Divider,
@@ -77,6 +78,10 @@ const EMPTY_ROW: ManualRow = {
 
 function isRowEffectivelyEmpty(row: ManualRow) {
   return !row.nombre.trim() && !row.tipo.trim();
+}
+
+function isVisibleGitChange(kind: RepoChange["kind"]) {
+  return kind === "added" || kind === "modified" || kind === "unknown" || kind === "untracked";
 }
 
 function mapEstadoFromChange(ch: RepoChange) {
@@ -195,6 +200,7 @@ export function PiecesTablesStep({
   const [gitData, setGitData] = useState<RepoStatus[]>([]);
   const [gitRepos, setGitRepos] = useState<string[]>([]);
   const [gitTargetMode, setGitTargetMode] = useState<GitTargetMode>("create");
+  const [gitImportModalOpen, setGitImportModalOpen] = useState(false);
   const [showCommitInput, setShowCommitInput] = useState(false);
   const [commitRepo, setCommitRepo] = useState<RepoPick | null>(null);
   const [commitId, setCommitId] = useState("");
@@ -269,11 +275,57 @@ export function PiecesTablesStep({
     setCommitId("");
     setCommitSubmitted(false);
     setCommitError(null);
+    setGitImportModalOpen(false);
   }
 
   function handleCloseNewTableModal() {
     setNewTableModalOpen(false);
     resetNewTableModal();
+  }
+
+  function appendImportedItems(items: PiezasItem[]) {
+    const importedRows = items.map((item) => mapItemToManualRow(item, variant));
+    setManualRows((prev) => {
+      const hasSingleEmptyRow = prev.length === 1 && isRowEffectivelyEmpty(prev[0]);
+      return hasSingleEmptyRow ? importedRows : [...prev, ...importedRows];
+    });
+    setManualSubmitted(false);
+  }
+
+  async function importStatusesIntoEditor(statuses: RepoStatus[]) {
+    const reposWithChanges = (statuses ?? []).filter(
+      (status) => (status?.changes?.length ?? 0) > 0,
+    );
+    if (!reposWithChanges.length) return false;
+
+    const importedItems: PiezasItem[] = [];
+    for (const repo of reposWithChanges) {
+      const visibleChanges = repo.changes.filter((change) =>
+        isVisibleGitChange(change.kind),
+      );
+      if (!visibleChanges.length) continue;
+
+      const lastModifiedByPath = await getLastModifiedByPath(
+        repo.repoPath,
+        visibleChanges.map((change) => change.path),
+      );
+
+      importedItems.push(
+        ...visibleChanges.map((change) =>
+          variant === "fixes"
+            ? mapChangeToFixItem(
+                change,
+                repo.branch,
+                change.lastModifiedAt || lastModifiedByPath[change.path],
+              )
+            : mapChangeToStandardItem(change),
+        ),
+      );
+    }
+
+    if (!importedItems.length) return false;
+    appendImportedItems(importedItems);
+    return true;
   }
 
   async function handlePickGithub(targetMode: GitTargetMode) {
@@ -295,6 +347,16 @@ export function PiecesTablesStep({
       await window.ipc.startGitWatch(paths);
 
       const statuses = await window.ipc.scan(paths);
+      if (targetMode === "edit") {
+        const imported = await importStatusesIntoEditor(statuses ?? []);
+        if (!imported) {
+          setCommitError("No se encontraron archivos detectados para agregar");
+          return;
+        }
+        setGitImportModalOpen(false);
+        return;
+      }
+
       setGitTargetMode(targetMode);
       setGitData(statuses ?? []);
       setGitModalOpen(true);
@@ -382,6 +444,16 @@ export function PiecesTablesStep({
             ? `${failureMessage}${logPath ? ` Revisa el log en: ${logPath}` : ""}`
             : "No se encontraron archivos para ese commit en los repositorios seleccionados",
         );
+        return;
+      }
+
+      if (targetMode === "edit") {
+        const imported = await importStatusesIntoEditor(statuses);
+        if (!imported) {
+          setCommitError("No se encontraron archivos detectados para agregar");
+          return;
+        }
+        setGitImportModalOpen(false);
         return;
       }
 
@@ -782,7 +854,7 @@ export function PiecesTablesStep({
                           Seleccionar repositorio
                         </Button>
                         <Button
-                          variant="outline"
+                          variant="default"
                           color="gray"
                           onClick={handleSelectRepoForCommit}
                           loading={commitRepoSelectionLoading}
@@ -1066,17 +1138,34 @@ export function PiecesTablesStep({
               </Stack>
             </ScrollArea>
 
-            <Flex gap="xs" justify="flex-end">
-              <Button
-                color="gray"
-                variant="outline"
-                onClick={handleAddManualRow}
-              >
-                Añadir fila
-              </Button>
-              <Button color={mainColor} onClick={handleSubmitManualTable}>
-                {manualMode === "edit" ? "Guardar cambios" : "Crear tabla"}
-              </Button>
+            <Flex gap="xs" justify="space-between" align="center">
+              <Box>
+                {manualMode === "edit" ? (
+                  <Button
+                    variant="light"
+                    leftSection={<IconBrandGithub size="1rem" />}
+                    onClick={() => {
+                      setCommitError(null);
+                      setCommitSubmitted(false);
+                      setGitImportModalOpen(true);
+                    }}
+                  >
+                    Agregar desde Github
+                  </Button>
+                ) : null}
+              </Box>
+              <Flex gap="xs" justify="flex-end">
+                <Button
+                  color="gray"
+                  variant="default"
+                  onClick={handleAddManualRow}
+                >
+                  Añadir fila
+                </Button>
+                <Button color={mainColor} onClick={handleSubmitManualTable}>
+                  {manualMode === "edit" ? "Guardar cambios" : "Crear tabla"}
+                </Button>
+              </Flex>
             </Flex>
           </Stack>
         )}
@@ -1231,6 +1320,117 @@ export function PiecesTablesStep({
           setGroups((prev: PiezasGrupo[]) => [...prev, newGroup]);
         }}
       />
+
+      <Modal
+        opened={gitImportModalOpen}
+        onClose={() => {
+          setGitImportModalOpen(false);
+          setCommitError(null);
+          setCommitSubmitted(false);
+        }}
+        title="Agregar filas desde Github"
+        centered
+        radius="md"
+        size="sm"
+        withinPortal={false}
+      >
+        <Stack>
+          <Accordion variant="separated" radius="sm">
+            <Accordion.Item value="repo">
+              <Accordion.Control icon={<IconBrandGithub size="1.1rem" />}>
+                <Text size="sm">Desde repositorio (Github)</Text>
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Stack>
+                  {!commitRepo && (
+                    <>
+                      <Button
+                        onClick={() => handlePickGithub("edit")}
+                        loading={repoSelectionLoading}
+                        color="orange"
+                      >
+                        Seleccionar repositorio
+                      </Button>
+                      <Button
+                        variant="default"
+                        color="gray"
+                        onClick={handleSelectRepoForCommit}
+                        loading={commitRepoSelectionLoading}
+                      >
+                        Recuperar desde commit específico
+                      </Button>
+                    </>
+                  )}
+                  {showCommitInput && commitRepo && (
+                    <Stack gap="xs">
+                      <Card withBorder shadow="sm" radius="md" style={{ width: "100%" }}>
+                        <Card.Section withBorder inheritPadding py={5}>
+                          <Group justify="space-between" wrap="nowrap">
+                            <Text
+                              fw={500}
+                              size="sm"
+                              truncate
+                              style={{ flex: 1, minWidth: 0 }}
+                            >
+                              {commitRepo.repoName}
+                            </Text>
+                            <Menu withinPortal position="bottom-end" shadow="sm">
+                              <Menu.Target>
+                                <ActionIcon variant="subtle" color="gray">
+                                  <IconDots size={16} />
+                                </ActionIcon>
+                              </Menu.Target>
+                              <Menu.Dropdown>
+                                <Menu.Item
+                                  leftSection={<IconRotateClockwise size={14} />}
+                                  onClick={handleSelectRepoForCommit}
+                                >
+                                  Cambiar repositorio
+                                </Menu.Item>
+                                <Menu.Item
+                                  leftSection={<IconTrash size={14} />}
+                                  color="red"
+                                  onClick={handleClearCommitRepo}
+                                >
+                                  Quitar repositorio
+                                </Menu.Item>
+                              </Menu.Dropdown>
+                            </Menu>
+                          </Group>
+                        </Card.Section>
+                      </Card>
+                      <TextInput
+                        placeholder="ID de commit (corto o completo)"
+                        value={commitId}
+                        onChange={(e) => setCommitId(e.currentTarget.value)}
+                        error={
+                          commitSubmitted && commitRepo?.repoPath && !commitId.trim()
+                            ? "El commit es requerido"
+                            : undefined
+                        }
+                        disabled={!commitRepo}
+                      />
+                      {commitError ? (
+                        <Text c="red" size="sm">
+                          {commitError}
+                        </Text>
+                      ) : null}
+                      <Button
+                        color={mainColor}
+                        onClick={() => handlePickCommit("edit")}
+                        loading={commitScanLoading}
+                        disabled={!commitRepo}
+                      >
+                        Agregar archivos del commit
+                      </Button>
+                    </Stack>
+                  )}
+                </Stack>
+              </Accordion.Panel>
+            </Accordion.Item>
+          </Accordion>
+        </Stack>
+      </Modal>
     </>
   );
 }

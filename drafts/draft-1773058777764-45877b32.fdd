@@ -2,10 +2,10 @@
   "version": 1,
   "name": "Manual de instalación - TPCDG-5551",
   "createdAt": "2026-03-09T12:19:37.762Z",
-  "updatedAt": "2026-03-09T12:22:51.543Z",
+  "updatedAt": "2026-03-10T07:51:07.893Z",
   "state": {
     "manualTitle": "Manual de instalación - TPCDG-5551",
-    "activeStep": 0,
+    "activeStep": 1,
     "data": {
       "camposDetectados": [
         {
@@ -777,7 +777,21 @@
         ]
       }
     ],
-    "detailedPieces": [],
+    "detailedPieces": [
+      {
+        "grupo": "Middleware/OSB",
+        "items": [
+          {
+            "nombre": "PiecesTablesStep.tsx",
+            "tipo": "TSX",
+            "estado": "Modificado",
+            "sourcePath": "src/ui/pages/steps/PiecesTablesStep.tsx"
+          }
+        ],
+        "sourceRepository": "installation-manuals-generator",
+        "sourceBranch": "main"
+      }
+    ],
     "detailedFixPieces": [],
     "backupTables": [],
     "backupFixTables": [],

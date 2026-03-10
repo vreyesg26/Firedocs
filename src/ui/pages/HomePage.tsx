@@ -182,14 +182,6 @@ export default function HomePage() {
             <Code block>{appMeta?.version || "No disponible"}</Code>
           </Box>
           <Box>
-            <Text fw={600}>Build</Text>
-            <Code block>{appMeta?.buildCommit || "No disponible"}</Code>
-          </Box>
-          <Box>
-            <Text fw={600}>Fecha de build</Text>
-            <Code block>{appMeta?.buildDate || "No disponible"}</Code>
-          </Box>
-          <Box>
             <Text fw={600}>Plataforma</Text>
             <Code block>
               {appMeta ? `${appMeta.platform}-${appMeta.arch}` : "No disponible"}

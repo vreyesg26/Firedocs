@@ -202,7 +202,7 @@ export default function DraftsPage() {
             </Menu>
           )}
           <Button
-            variant="filled"
+            variant="default"
             leftSection={<IconArrowLeft size={16} />}
             color="gray"
             onClick={() => navigate("/")}
