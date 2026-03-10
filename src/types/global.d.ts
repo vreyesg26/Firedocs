@@ -22,6 +22,16 @@ declare global {
     // Unificamos el puente aquí (coincide con preload.ts)
     ipc: {
       setWindowTitle(section?: string): Promise<boolean>;
+      getAppMeta(): Promise<{
+        appName: string;
+        version: string;
+        platform: string;
+        arch: string;
+        gitBinary: string;
+        logPath: string;
+        buildCommit: string;
+        buildDate: string;
+      }>;
 
       // DOCX
       selectDocx(): Promise<any>;

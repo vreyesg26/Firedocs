@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import {
   ActionIcon,
   Badge,
+  Box,
   Card,
   Center,
+  Code,
   Container,
   Flex,
   Group,
+  Modal,
   SimpleGrid,
   Text,
   Title,
@@ -16,7 +19,18 @@ import { mainButtonsData } from "@/lib/constants";
 import { useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
-import { IconCircleArrowRightFilled } from "@tabler/icons-react";
+import { IconCircleArrowRightFilled, IconInfoCircle } from "@tabler/icons-react";
+
+type AppMeta = {
+  appName: string;
+  version: string;
+  platform: string;
+  arch: string;
+  gitBinary: string;
+  logPath: string;
+  buildCommit: string;
+  buildDate: string;
+};
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -25,6 +39,8 @@ export default function HomePage() {
     handleOpenUnion: () => Promise<boolean>;
   };
   const [hasDrafts, setHasDrafts] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [appMeta, setAppMeta] = useState<AppMeta | null>(null);
 
   useEffect(() => {
     void window.ipc.setWindowTitle();
@@ -35,6 +51,8 @@ export default function HomePage() {
     void (async () => {
       const drafts = await window.ipc.draftList();
       if (mounted) setHasDrafts(drafts.length > 0);
+      const meta = await window.ipc.getAppMeta();
+      if (mounted) setAppMeta(meta);
     })();
     return () => {
       mounted = false;
@@ -79,12 +97,23 @@ export default function HomePage() {
   return (
     <Center style={{ minHeight: "100vh" }}>
       <Container strategy="grid" size="lg" py="xl" fluid>
-        <Group justify="center" gap="xs">
+        <Flex justify="center" align="center" gap="xs">
           <Badge variant="filled" size="lg" color={mainColor}>
             Firedocs
           </Badge>
-          <Text size="sm">Version beta 1.0</Text>
-        </Group>
+          <Text size="sm">
+            Versión {appMeta?.version || "desconocida"}
+            {appMeta?.buildCommit ? ` • Build ${appMeta.buildCommit}` : ""}
+          </Text>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            onClick={() => setAboutOpen(true)}
+            aria-label="Abrir información de la aplicación"
+          >
+            <IconInfoCircle size="1.1rem" />
+          </ActionIcon>
+        </Flex>
 
         <Title order={2} className={classes.title} ta="center" mt="sm">
           Manuales de instalación automatizados
@@ -127,7 +156,55 @@ export default function HomePage() {
             </Text>
           </Flex>
         </Group>
+        <Group justify="center" mt="xs">
+          <Text size="xs" c="dimmed">
+            {appMeta
+              ? `v${appMeta.version} • ${appMeta.platform}-${appMeta.arch}`
+              : "Cargando información del build"}
+          </Text>
+        </Group>
       </Container>
+
+      <Modal
+        opened={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        title="Acerca de / Diagnóstico"
+        centered
+        radius="md"
+      >
+        <Flex direction="column" gap="sm">
+          <Box>
+            <Text fw={600}>Aplicación</Text>
+            <Code block>{appMeta?.appName || "Firedocs"}</Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Versión</Text>
+            <Code block>{appMeta?.version || "No disponible"}</Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Build</Text>
+            <Code block>{appMeta?.buildCommit || "No disponible"}</Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Fecha de build</Text>
+            <Code block>{appMeta?.buildDate || "No disponible"}</Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Plataforma</Text>
+            <Code block>
+              {appMeta ? `${appMeta.platform}-${appMeta.arch}` : "No disponible"}
+            </Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Binario Git detectado</Text>
+            <Code block>{appMeta?.gitBinary || "No disponible"}</Code>
+          </Box>
+          <Box>
+            <Text fw={600}>Ruta del log</Text>
+            <Code block>{appMeta?.logPath || "No disponible"}</Code>
+          </Box>
+        </Flex>
+      </Modal>
     </Center>
   );
 }

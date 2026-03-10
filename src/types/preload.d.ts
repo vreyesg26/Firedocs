@@ -3,6 +3,16 @@ declare global {
   interface Window {
     ipc: {
       setWindowTitle: (section?: string) => Promise<boolean>;
+      getAppMeta: () => Promise<{
+        appName: string;
+        version: string;
+        platform: string;
+        arch: string;
+        gitBinary: string;
+        logPath: string;
+        buildCommit: string;
+        buildDate: string;
+      }>;
       selectDocx: () => Promise<{ filePath: string; bytes: Uint8Array } | null>;
       selectMultipleDocx: () => Promise<
         Array<{ filePath: string; bytes: Uint8Array }> | null

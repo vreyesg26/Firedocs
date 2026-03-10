@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 // Exponemos TODO bajo window.ipc (unificado)
 contextBridge.exposeInMainWorld("ipc", {
   setWindowTitle: (section?: string) => ipcRenderer.invoke("app:set-title", section),
+  getAppMeta: () => ipcRenderer.invoke("app:get-meta"),
 
   // DOCX (lo que ya tenías)
   selectDocx: () => ipcRenderer.invoke("select-docx"),

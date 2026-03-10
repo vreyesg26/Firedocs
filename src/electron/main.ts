@@ -438,6 +438,7 @@ function createWindow() {
 function registerAppIpcHandlers() {
   ipcMain.removeHandler("app:set-title");
   ipcMain.removeHandler("app:get-log-path");
+  ipcMain.removeHandler("app:get-meta");
 
   ipcMain.handle("app:set-title", (event, section?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -447,6 +448,19 @@ function registerAppIpcHandlers() {
   });
 
   ipcMain.handle("app:get-log-path", () => appLogPath());
+  ipcMain.handle("app:get-meta", () => ({
+    appName: APP_NAME,
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    gitBinary: GIT_BINARY,
+    logPath: appLogPath(),
+    buildCommit:
+      process.env.BUILD_COMMIT?.trim() ||
+      process.env.GITHUB_SHA?.slice(0, 7) ||
+      "",
+    buildDate: process.env.BUILD_DATE?.trim() || "",
+  }));
 }
 
 // -------------------- Descubrimiento & Scan de repos (AUTOMÁTICO) --------------------
