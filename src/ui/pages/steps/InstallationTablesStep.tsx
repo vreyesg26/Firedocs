@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
+import { notifySuccess } from "@/lib/notifications";
 import type {
   InstallationHeaderFourRow,
   InstallationHeaderOneRow,
@@ -140,6 +141,16 @@ function getDirectoryFromPath(path: string) {
   return normalized.slice(0, normalized.lastIndexOf("/")).replaceAll("/", "\\");
 }
 
+function appendVersionerPath(currentValue: string, nextPath: string) {
+  const trimmedNextPath = nextPath.trim();
+  if (!trimmedNextPath) return currentValue;
+
+  const trimmedCurrentValue = currentValue.trim();
+  if (!trimmedCurrentValue) return trimmedNextPath;
+
+  return `${trimmedCurrentValue}\n${trimmedNextPath}`;
+}
+
 function normalizeSearchValue(value: string) {
   return value
     .toLowerCase()
@@ -166,7 +177,12 @@ function findMentionAtCursor(value: string, cursor: number | null) {
 }
 
 function isSuggestionNavigationKey(key: string) {
-  return key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "Escape";
+  return (
+    key === "ArrowDown" ||
+    key === "ArrowUp" ||
+    key === "Enter" ||
+    key === "Escape"
+  );
 }
 
 function normalizeTableValue(value: string) {
@@ -251,8 +267,7 @@ export function InstallationTablesStep({
     detailedFixPieces?: PiezasGrupo[];
   };
 
-  const isFixMode =
-    mode === "installation-fix" || mode === "reversion-fix";
+  const isFixMode = mode === "installation-fix" || mode === "reversion-fix";
   const isInstallationMode =
     mode === "installation" || mode === "installation-fix";
   const detailedPieces = isFixMode
@@ -260,12 +275,12 @@ export function InstallationTablesStep({
     : manual.detailedPieces;
   const groups =
     mode === "installation"
-      ? manual.installationTables ?? []
+      ? (manual.installationTables ?? [])
       : mode === "reversion"
-        ? manual.reversionTables ?? []
+        ? (manual.reversionTables ?? [])
         : mode === "installation-fix"
-          ? manual.installationFixTables ?? []
-          : manual.reversionFixTables ?? [];
+          ? (manual.installationFixTables ?? [])
+          : (manual.reversionFixTables ?? []);
   const setGroups =
     mode === "installation"
       ? manual.setInstallationTables
@@ -304,9 +319,9 @@ export function InstallationTablesStep({
   const [headerOne, setHeaderOne] = useState<InstallationHeaderOneRow>({
     ...EMPTY_HEADER_ONE,
   });
-  const [procedureRows, setProcedureRows] = useState<InstallationProcedureRow[]>(
-    [{ ...EMPTY_PROCEDURE_ROW }],
-  );
+  const [procedureRows, setProcedureRows] = useState<
+    InstallationProcedureRow[]
+  >([{ ...EMPTY_PROCEDURE_ROW }]);
   const [headerThree, setHeaderThree] = useState<InstallationHeaderThreeRow>({
     ...EMPTY_HEADER_THREE,
   });
@@ -470,6 +485,7 @@ export function InstallationTablesStep({
 
   function handleConfirmDelete() {
     if (groupToDeleteIndex === null) return;
+    const deletedGroupName = selectedGroupName || "sin nombre";
 
     setGroups((prev) =>
       buildSequentialInstallationTitles(
@@ -477,6 +493,10 @@ export function InstallationTablesStep({
       ),
     );
     handleCloseDeleteModal();
+    notifySuccess({
+      title: "Tabla eliminada",
+      message: `La tabla "${deletedGroupName}" se eliminó correctamente`,
+    });
   }
 
   function handleOpenOrderModal() {
@@ -571,7 +591,11 @@ export function InstallationTablesStep({
     });
   }
 
-  function handleObjectToInstallChange(index: number, value: string, cursor: number) {
+  function handleObjectToInstallChange(
+    index: number,
+    value: string,
+    cursor: number,
+  ) {
     handleProcedureRowChange(index, "objectToInstall", value);
     updateObjectMentionState(index, value, cursor);
   }
@@ -584,7 +608,10 @@ export function InstallationTablesStep({
     if (!currentRow) return;
 
     const nextObjectToInstall = `${currentRow.objectToInstall.slice(0, tokenStart)}${option.fileName}${currentRow.objectToInstall.slice(tokenEnd)}`;
-    const nextVersionerPath = getDirectoryFromPath(option.fullPath);
+    const nextVersionerPath = appendVersionerPath(
+      currentRow.versionerPath,
+      getDirectoryFromPath(option.fullPath),
+    );
 
     setProcedureRows((prev) => {
       const next = [...prev];
@@ -726,7 +753,11 @@ export function InstallationTablesStep({
           index === editingIndex ? nextGroup : group,
         );
 
-        if (!isInstallationMode || isFixMode || !isOsbRepository(nextGroup.headerOne.repository)) {
+        if (
+          !isInstallationMode ||
+          isFixMode ||
+          !isOsbRepository(nextGroup.headerOne.repository)
+        ) {
           return buildSequentialInstallationTitles(nextGroups);
         }
 
@@ -742,7 +773,10 @@ export function InstallationTablesStep({
           );
         } else {
           nextGroups.push(
-            buildVortexGroupFromOsb(nextGroup, `Tabla ${nextGroups.length + 1}`),
+            buildVortexGroupFromOsb(
+              nextGroup,
+              `Tabla ${nextGroups.length + 1}`,
+            ),
           );
         }
 
@@ -784,7 +818,9 @@ export function InstallationTablesStep({
   }
 
   const selectedGroupName =
-    groupToDeleteIndex !== null ? groups[groupToDeleteIndex]?.title ?? "" : "";
+    groupToDeleteIndex !== null
+      ? (groups[groupToDeleteIndex]?.title ?? "")
+      : "";
   const currentPickerOptions =
     pickerMode === "branch" ? branchOptions : repositoryOptions;
   const pickerTitle =
@@ -832,7 +868,7 @@ export function InstallationTablesStep({
           </Text>
         </Flex>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="xs">
           {groups.map((group, index) => (
             <Flex
               key={`${group.title}-${index}`}
@@ -920,8 +956,9 @@ export function InstallationTablesStep({
                           style={{
                             textAlign: "center",
                             fontWeight:
-                              getValueFontWeight(group.headerOne.implementingTeam) ??
-                              700,
+                              getValueFontWeight(
+                                group.headerOne.implementingTeam,
+                              ) ?? 700,
                           }}
                         >
                           {group.headerOne.implementingTeam}
@@ -930,8 +967,9 @@ export function InstallationTablesStep({
                           style={{
                             textAlign: "center",
                             fontWeight:
-                              getValueFontWeight(group.headerOne.integrationBranch) ??
-                              700,
+                              getValueFontWeight(
+                                group.headerOne.integrationBranch,
+                              ) ?? 700,
                             whiteSpace: "pre-wrap",
                             overflowWrap: "anywhere",
                             wordBreak: "break-word",
@@ -943,7 +981,8 @@ export function InstallationTablesStep({
                           style={{
                             textAlign: "center",
                             fontWeight:
-                              getValueFontWeight(group.headerOne.repository) ?? 700,
+                              getValueFontWeight(group.headerOne.repository) ??
+                              700,
                           }}
                         >
                           {group.headerOne.repository}
@@ -980,7 +1019,7 @@ export function InstallationTablesStep({
                             fontWeight: 700,
                           }}
                         >
-                          Ruta en Versionador
+                          Ruta en versionador
                         </Table.Td>
                       </Table.Tr>
 
@@ -1003,7 +1042,9 @@ export function InstallationTablesStep({
                               whiteSpace: "pre-wrap",
                               verticalAlign: "middle",
                               textAlign: "center",
-                              fontWeight: getValueFontWeight(row.objectToInstall),
+                              fontWeight: getValueFontWeight(
+                                row.objectToInstall,
+                              ),
                               overflowWrap: "anywhere",
                               wordBreak: "break-word",
                             }}
@@ -1070,7 +1111,9 @@ export function InstallationTablesStep({
                             whiteSpace: "pre-wrap",
                             verticalAlign: "middle",
                             textAlign: "center",
-                            fontWeight: getValueFontWeight(group.headerThree.server),
+                            fontWeight: getValueFontWeight(
+                              group.headerThree.server,
+                            ),
                             overflowWrap: "anywhere",
                             wordBreak: "break-word",
                           }}
@@ -1153,12 +1196,15 @@ export function InstallationTablesStep({
         withinPortal={false}
       >
         <Stack>
-          <SimpleGrid cols={{ base: 1, sm: 3 }}>
+          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
             <TextInput
               label="Equipo Implementador"
               value={headerOne.implementingTeam}
               onChange={(event) =>
-                handleHeaderOneChange("implementingTeam", event.currentTarget.value)
+                handleHeaderOneChange(
+                  "implementingTeam",
+                  event.currentTarget.value,
+                )
               }
               styles={centeredTextInputStyles}
             />
@@ -1190,7 +1236,7 @@ export function InstallationTablesStep({
             <Flex align="flex-end" gap="xs">
               <TextInput
                 label="Repositorio"
-                value={headerOne.repository}  
+                value={headerOne.repository}
                 onChange={(event) =>
                   handleHeaderOneChange("repository", event.currentTarget.value)
                 }
@@ -1252,7 +1298,7 @@ export function InstallationTablesStep({
                       </Flex>
                     </Flex>
 
-                    <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
                       <Textarea
                         label="Paso"
                         value={row.step}
@@ -1318,7 +1364,9 @@ export function InstallationTablesStep({
                               onBlur={() => {
                                 window.setTimeout(() => {
                                   setActiveObjectMention((current) =>
-                                    current?.rowIndex === index ? null : current,
+                                    current?.rowIndex === index
+                                      ? null
+                                      : current,
                                   );
                                 }, 150);
                               }}
@@ -1341,69 +1389,78 @@ export function InstallationTablesStep({
                             ) : (
                               <ScrollArea.Autosize mah={220} offsetScrollbars>
                                 <Stack gap={0}>
-                                  {filteredFileSearchOptions.map((option, optionIndex) => (
-                                    <Button
-                                      key={option.fullPath}
-                                      ref={(node) => {
-                                        suggestionOptionRefs.current[optionIndex] = node;
-                                      }}
-                                      variant="transparent"
-                                      color="gray"
-                                      justify="flex-start"
-                                      radius={0}
-                                      style={{
-                                        borderRadius: 8,
-                                        border:
-                                          activeSuggestionIndex === optionIndex
-                                            ? "1px solid var(--mantine-color-blue-5)"
-                                            : "1px solid transparent",
-                                        backgroundColor:
-                                          activeSuggestionIndex === optionIndex
-                                            ? "rgba(34, 139, 230, 0.18)"
-                                            : "transparent",
-                                      }}
-                                      styles={{
-                                        root: {
-                                          minHeight: 42,
-                                        },
-                                        inner: {
-                                          justifyContent: "flex-start",
-                                          width: "100%",
-                                        },
-                                        label: {
-                                          width: "100%",
-                                        },
-                                      }}
-                                      onMouseDown={(event) =>
-                                        event.preventDefault()
-                                      }
-                                      onMouseEnter={() =>
-                                        setActiveSuggestionIndex(optionIndex)
-                                      }
-                                      onClick={() => handleSelectObjectSuggestion(option)}
-                                      >
-                                      <Flex
-                                        align="center"
+                                  {filteredFileSearchOptions.map(
+                                    (option, optionIndex) => (
+                                      <Button
+                                        key={option.fullPath}
+                                        ref={(node) => {
+                                          suggestionOptionRefs.current[
+                                            optionIndex
+                                          ] = node;
+                                        }}
+                                        variant="transparent"
+                                        color="gray"
                                         justify="flex-start"
-                                        gap="xs"
-                                        wrap="nowrap"
-                                        style={{ width: "100%" }}
+                                        radius={0}
+                                        style={{
+                                          borderRadius: 8,
+                                          border:
+                                            activeSuggestionIndex ===
+                                            optionIndex
+                                              ? "1px solid var(--mantine-color-blue-5)"
+                                              : "1px solid transparent",
+                                          backgroundColor:
+                                            activeSuggestionIndex ===
+                                            optionIndex
+                                              ? "rgba(34, 139, 230, 0.18)"
+                                              : "transparent",
+                                        }}
+                                        styles={{
+                                          root: {
+                                            minHeight: 42,
+                                          },
+                                          inner: {
+                                            justifyContent: "flex-start",
+                                            width: "100%",
+                                          },
+                                          label: {
+                                            width: "100%",
+                                          },
+                                        }}
+                                        onMouseDown={(event) =>
+                                          event.preventDefault()
+                                        }
+                                        onMouseEnter={() =>
+                                          setActiveSuggestionIndex(optionIndex)
+                                        }
+                                        onClick={() =>
+                                          handleSelectObjectSuggestion(option)
+                                        }
                                       >
-                                        <Text
-                                          size="sm"
-                                          lh={1.2}
-                                          ta="left"
-                                          c={
-                                            activeSuggestionIndex === optionIndex
-                                              ? "blue.2"
-                                              : undefined
-                                          }
+                                        <Flex
+                                          align="center"
+                                          justify="flex-start"
+                                          gap="xs"
+                                          wrap="nowrap"
+                                          style={{ width: "100%" }}
                                         >
-                                          {option.fileName}
-                                        </Text>
-                                      </Flex>
-                                    </Button>
-                                  ))}
+                                          <Text
+                                            size="sm"
+                                            lh={1.2}
+                                            ta="left"
+                                            c={
+                                              activeSuggestionIndex ===
+                                              optionIndex
+                                                ? "blue.2"
+                                                : undefined
+                                            }
+                                          >
+                                            {option.fileName}
+                                          </Text>
+                                        </Flex>
+                                      </Button>
+                                    ),
+                                  )}
                                 </Stack>
                               </ScrollArea.Autosize>
                             )}
@@ -1411,7 +1468,7 @@ export function InstallationTablesStep({
                         </Popover.Dropdown>
                       </Popover>
                       <Textarea
-                        label="Ruta en Versionador"
+                        label="Ruta en versionador"
                         value={row.versionerPath}
                         onChange={(event) =>
                           handleProcedureRowChange(
@@ -1429,7 +1486,7 @@ export function InstallationTablesStep({
             </Stack>
           </Stack>
 
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
             <Textarea
               label="Base de datos"
               value={headerThree.databaseOrDirectory}
@@ -1451,7 +1508,7 @@ export function InstallationTablesStep({
             />
           </SimpleGrid>
 
-          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
             <Textarea
               label="Aplicativo a implementar"
               value={headerFour.applicationToImplement}
@@ -1502,7 +1559,10 @@ export function InstallationTablesStep({
           </Text>
           {currentPickerOptions.length > 0 ? (
             <ScrollArea.Autosize mah={260} offsetScrollbars>
-              <Radio.Group value={pickerSelection} onChange={setPickerSelection}>
+              <Radio.Group
+                value={pickerSelection}
+                onChange={setPickerSelection}
+              >
                 <Stack gap="xs">
                   {currentPickerOptions.map((option) => (
                     <Radio key={option} value={option} label={option} />
@@ -1540,7 +1600,8 @@ export function InstallationTablesStep({
       >
         <Stack>
           <Text>
-            ¿Eliminar la tabla <strong>{selectedGroupName || "sin nombre"}</strong>?
+            ¿Eliminar la tabla{" "}
+            <strong>{selectedGroupName || "sin nombre"}</strong>?
           </Text>
           <Flex justify="flex-end" gap="sm">
             <Button variant="default" onClick={handleCloseDeleteModal}>

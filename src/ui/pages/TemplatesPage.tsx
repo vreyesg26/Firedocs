@@ -147,7 +147,7 @@ export default function TemplatesPage() {
       setPreviewLoading(false);
     }
   }
-
+  
   async function handleDeleteTemplate(templateId: string) {
     const template = templates.find((item) => item.id === templateId);
     const confirmed = window.confirm(
@@ -226,7 +226,7 @@ export default function TemplatesPage() {
   const hasTemplates = templates.length > 0;
 
   return (
-    <Container fluid px="lg" py="md">
+    <Container fluid px={3} py={3}>
       <Flex justify="space-between" align="center" mb="md">
         <Group gap="xs" align="center">
           <ActionIcon
@@ -265,7 +265,7 @@ export default function TemplatesPage() {
           </Text>
         </Flex>
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xs">
           <Stack>
             {templates.map((tpl) => (
               <Card

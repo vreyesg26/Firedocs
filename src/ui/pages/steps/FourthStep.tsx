@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ActionIcon,
   Button,
   Divider,
+  Group,
   Paper,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconPlus } from "@tabler/icons-react";
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
 
@@ -93,6 +95,16 @@ export const FourthStep = () => {
     handleAddAffectedArea(false);
   }
 
+  function handleDeleteServiceProduct(index: number) {
+    const next = servicesList.filter((_, itemIndex) => itemIndex !== index);
+    setServicesProducts(next.length > 0 ? next : [""]);
+  }
+
+  function handleDeleteAffectedArea(index: number) {
+    const next = areasList.filter((_, itemIndex) => itemIndex !== index);
+    setAffectedAreas(next.length > 0 ? next : [""]);
+  }
+
   return (
     <>
       <Title order={2}>
@@ -100,7 +112,7 @@ export const FourthStep = () => {
       </Title>
       <Divider my="xs" />
 
-      <Stack>
+      <Stack gap='xs'>
         <Paper withBorder p="sm" radius="sm">
           <Stack>
             <Text>
@@ -110,23 +122,33 @@ export const FourthStep = () => {
             </Text>
             <Stack gap="xs">
               {servicesList.map((value, index) => (
-                <TextInput
-                  key={`service-product-${index}`}
-                  ref={(node) => {
-                    servicesInputRefs.current[index] = node;
-                  }}
-                  value={value}
-                  onChange={(event) =>
-                    handleServiceProductChange(index, event.currentTarget.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
-                    if (!value.trim()) return;
-                    event.preventDefault();
-                    handleAddServiceProduct(true);
-                  }}
-                  placeholder={`Servicio/Producto ${index + 1}`}
-                />
+                <Group key={`service-product-${index}`} gap="xs" wrap="nowrap">
+                  <TextInput
+                    ref={(node) => {
+                      servicesInputRefs.current[index] = node;
+                    }}
+                    value={value}
+                    onChange={(event) =>
+                      handleServiceProductChange(index, event.currentTarget.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      if (!value.trim()) return;
+                      event.preventDefault();
+                      handleAddServiceProduct(true);
+                    }}
+                    placeholder={`Servicio/Producto ${index + 1}`}
+                    style={{ flex: 1 }}
+                  />
+                  <ActionIcon
+                    color="red"
+                    variant="light"
+                    onClick={() => handleDeleteServiceProduct(index)}
+                    aria-label={`Eliminar servicio o producto ${index + 1}`}
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Group>
               ))}
               <Button
                 variant="filled"
@@ -148,23 +170,33 @@ export const FourthStep = () => {
             </Text>
             <Stack gap="xs">
               {areasList.map((value, index) => (
-                <TextInput
-                  key={`affected-area-${index}`}
-                  ref={(node) => {
-                    areasInputRefs.current[index] = node;
-                  }}
-                  value={value}
-                  onChange={(event) =>
-                    handleAffectedAreaChange(index, event.currentTarget.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter") return;
-                    if (!value.trim()) return;
-                    event.preventDefault();
-                    handleAddAffectedArea(true);
-                  }}
-                  placeholder={`Área afectada ${index + 1}`}
-                />
+                <Group key={`affected-area-${index}`} gap="xs" wrap="nowrap">
+                  <TextInput
+                    ref={(node) => {
+                      areasInputRefs.current[index] = node;
+                    }}
+                    value={value}
+                    onChange={(event) =>
+                      handleAffectedAreaChange(index, event.currentTarget.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      if (!value.trim()) return;
+                      event.preventDefault();
+                      handleAddAffectedArea(true);
+                    }}
+                    placeholder={`Área afectada ${index + 1}`}
+                    style={{ flex: 1 }}
+                  />
+                  <ActionIcon
+                    color="red"
+                    variant="light"
+                    onClick={() => handleDeleteAffectedArea(index)}
+                    aria-label={`Eliminar área afectada ${index + 1}`}
+                  >
+                    <IconTrash size={16} />
+                  </ActionIcon>
+                </Group>
               ))}
               <Button
                 variant="filled"

@@ -19,14 +19,18 @@ import {
 import {
   IconArrowLeft,
   IconArrowsSort,
+  IconEye,
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
 import { useNavigate } from "react-router-dom";
 import { useManual } from "@/context/ManualContext";
-import { notifyError } from "@/lib/notifications";
+import { notifyError, notifySuccess } from "@/lib/notifications";
 import { mainColor } from "@/lib/utils";
-import { getManualProgress, type ManualProgressState } from "@/lib/manual-progress";
+import {
+  getManualProgress,
+  type ManualProgressState,
+} from "@/lib/manual-progress";
 
 type DraftMeta = {
   id: string;
@@ -127,6 +131,7 @@ export default function DraftsPage() {
 
   async function handleDeleteDraft() {
     if (!draftToDelete) return;
+    const draftName = draftToDelete.name || "Sin título";
     const ok = await deleteDraftById(draftToDelete.id);
     if (!ok) {
       notifyError({
@@ -137,6 +142,10 @@ export default function DraftsPage() {
     }
     handleCloseDeleteModal();
     await refreshDrafts();
+    notifySuccess({
+      title: "Borrador eliminado",
+      message: `El borrador "${draftName}" se eliminó correctamente`,
+    });
   }
 
   const sortedDrafts = useMemo(() => {
@@ -170,7 +179,7 @@ export default function DraftsPage() {
   }, [drafts, sortMode]);
 
   return (
-    <Container fluid px="lg" py="md">
+    <Container fluid px={3} py={3}>
       <Flex justify="space-between" align="center" mb="md">
         <Title order={2}>Borradores</Title>
         <Group gap="xs">
@@ -178,7 +187,7 @@ export default function DraftsPage() {
             <Menu withinPortal position="bottom-end" shadow="sm">
               <Menu.Target>
                 <Button
-                  variant="default"
+                  variant="filled"
                   color={mainColor}
                   leftSection={<IconArrowsSort size={16} />}
                 >
@@ -212,7 +221,7 @@ export default function DraftsPage() {
         </Group>
       </Flex>
 
-      <Divider mb="lg" />
+      <Divider my="md" />
 
       {drafts.length === 0 ? (
         <Flex
@@ -227,13 +236,13 @@ export default function DraftsPage() {
           </Text>
         </Flex>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="xs">
           {sortedDrafts.map((draft) => {
             const progress = getDraftProgress(
               draft.progressState as ManualProgressState | undefined,
             );
             return (
-              <Card key={draft.id} withBorder radius="md" p={0}>
+              <Card key={draft.id} withBorder radius="sm" p={0}>
                 <Stack p="md" gap="lg">
                   <Stack gap={4}>
                     <TruncatedDraftTitle title={draft.name || "Sin título"} />
@@ -242,7 +251,7 @@ export default function DraftsPage() {
                   <Stack gap={4}>
                     <Group justify="space-between" align="center">
                       <Text size="sm" c="dimmed" fw={600}>
-                        {progress.completed ? "Completado" : "Progreso"}
+                        {progress.completed ? "Completado" : "En progreso"}
                       </Text>
                       <Text size="sm" c="dimmed" fw={700}>
                         {progress.percent}%
@@ -252,7 +261,7 @@ export default function DraftsPage() {
                       value={progress.percent}
                       color={progress.completed ? "green" : mainColor}
                       size="sm"
-                      radius="xl"
+                      radius="sm"
                     />
                   </Stack>
 
@@ -268,18 +277,17 @@ export default function DraftsPage() {
                     </Text>
                   </Stack>
 
-                  <Group gap="xs" wrap="nowrap">
+                  <Group gap={5} wrap="nowrap">
                     <Button
-                      leftSection={<IconPencil size={14} />}
+                      leftSection={progress.completed ? <IconEye size={16} /> : <IconPencil size={14} />}
                       color={mainColor}
                       onClick={() => handleContinueDraft(draft.id)}
                       loading={loadingId === draft.id}
                       style={{ flex: 1 }}
                     >
-                      Seguir editando
+                      {progress.completed ? "Ver detalles" : "Seguir editando"}
                     </Button>
                     <ActionIcon
-                      variant="filled"
                       color="red"
                       size="lg"
                       onClick={() => handleOpenDeleteModal(draft)}

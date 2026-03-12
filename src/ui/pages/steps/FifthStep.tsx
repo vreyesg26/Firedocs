@@ -43,11 +43,6 @@ const EMPTY_COMMUNICATION_ROW: CommunicationMatrixRow = {
   bossContact: "",
 };
 
-function sameStringList(a: string[], b: string[]) {
-  if (a.length !== b.length) return false;
-  return a.every((value, index) => value === b[index]);
-}
-
 function toRepositoryMultiselectLabel(repositoryName: string) {
   const trimmed = repositoryName.trim();
   if (!trimmed.includes("/")) return trimmed;
@@ -114,6 +109,21 @@ function mergeRepositoriesKeepingOrder(
   return [...keptRepositories, ...appendedRepositories];
 }
 
+function mergeInferredRepositories(
+  currentRepositories: string[] | undefined,
+  inferredRepositories: string[],
+) {
+  const current = Array.isArray(currentRepositories) ? currentRepositories : [];
+  const currentSet = new Set(
+    current
+      .map((value) => normalizeRepositoryOptionValue(value))
+      .filter((value) => value.length > 0),
+  );
+  const missing = inferredRepositories.filter((value) => !currentSet.has(value));
+  if (missing.length === 0) return null;
+  return [...current, ...missing];
+}
+
 export const FifthStep = () => {
   const {
     detailedPieces,
@@ -140,6 +150,8 @@ export const FifthStep = () => {
   const [repositoryPickerSelection, setRepositoryPickerSelection] = useState<
     string[]
   >([]);
+  const [dismissedInferredRepositories, setDismissedInferredRepositories] =
+    useState<string[]>([]);
 
   const repositories = useMemo(
     () =>
@@ -162,16 +174,38 @@ export const FifthStep = () => {
       .filter((value) => value.length > 0);
     return Array.from(new Set(names));
   }, [detailedPieces]);
+  const inferredRepositorySet = useMemo(
+    () => new Set(inferredRepositories),
+    [inferredRepositories],
+  );
+  const dismissedInferredRepositorySet = useMemo(
+    () => new Set(dismissedInferredRepositories),
+    [dismissedInferredRepositories],
+  );
 
   useEffect(() => {
-    const cleanedCurrent = (repositoryNamesRaw ?? [])
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
-
-    if (!sameStringList(cleanedCurrent, inferredRepositories)) {
-      setRepositoryNames(inferredRepositories);
+    const activeInferredRepositories = inferredRepositories.filter(
+      (value) => !dismissedInferredRepositorySet.has(value),
+    );
+    const mergedRepositories = mergeInferredRepositories(
+      repositoryNamesRaw,
+      activeInferredRepositories,
+    );
+    if (mergedRepositories) {
+      setRepositoryNames(mergedRepositories);
     }
-  }, [inferredRepositories, repositoryNamesRaw, setRepositoryNames]);
+  }, [
+    dismissedInferredRepositorySet,
+    inferredRepositories,
+    repositoryNamesRaw,
+    setRepositoryNames,
+  ]);
+
+  useEffect(() => {
+    setDismissedInferredRepositories((current) =>
+      current.filter((value) => inferredRepositorySet.has(value)),
+    );
+  }, [inferredRepositorySet]);
 
   useEffect(() => {
     if (pendingRepositoryFocus === null) return;
@@ -198,6 +232,22 @@ export const FifthStep = () => {
   );
 
   function handleRepositoryChange(index: number, value: string) {
+    const currentValue = repositories[index] ?? "";
+    const currentNormalized = normalizeRepositoryOptionValue(currentValue);
+    const nextNormalized = normalizeRepositoryOptionValue(value);
+
+    if (
+      currentNormalized.length > 0 &&
+      currentNormalized !== nextNormalized &&
+      inferredRepositorySet.has(currentNormalized)
+    ) {
+      setDismissedInferredRepositories((current) =>
+        current.includes(currentNormalized)
+          ? current
+          : [...current, currentNormalized],
+      );
+    }
+
     const next = [...repositories];
     next[index] = value;
     setRepositoryNames(next);
@@ -209,6 +259,25 @@ export const FifthStep = () => {
     if (shouldFocus) {
       setPendingRepositoryFocus(next.length - 1);
     }
+  }
+
+  function handleDeleteRepository(index: number) {
+    const removedValue = repositories[index] ?? "";
+    const normalizedRemovedValue = normalizeRepositoryOptionValue(removedValue);
+
+    if (
+      normalizedRemovedValue.length > 0 &&
+      inferredRepositorySet.has(normalizedRemovedValue)
+    ) {
+      setDismissedInferredRepositories((current) =>
+        current.includes(normalizedRemovedValue)
+          ? current
+          : [...current, normalizedRemovedValue],
+      );
+    }
+
+    const next = repositories.filter((_, itemIndex) => itemIndex !== index);
+    setRepositoryNames(next.length > 0 ? next : [""]);
   }
 
   function handleMatrixRowChange(
@@ -420,28 +489,38 @@ export const FifthStep = () => {
           </Group>
         </Stack>
       </Modal>
-      <Stack>
+      <Stack gap="xs">
         <Paper withBorder p="sm" radius="sm">
           <Stack gap="xs">
             <Text size="md">Nombre de repositorios</Text>
             {repositories.map((value, index) => (
-              <TextInput
-                key={`repository-name-${index}`}
-                ref={(node) => {
-                  repositoryInputRefs.current[index] = node;
-                }}
-                value={value}
-                onChange={(event) =>
-                  handleRepositoryChange(index, event.currentTarget.value)
-                }
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  if (!value.trim()) return;
-                  event.preventDefault();
-                  handleAddRepository(true);
-                }}
-                placeholder={`Repositorio ${index + 1}`}
-              />
+              <Group key={`repository-name-${index}`} gap="xs" wrap="nowrap">
+                <TextInput
+                  ref={(node) => {
+                    repositoryInputRefs.current[index] = node;
+                  }}
+                  value={value}
+                  onChange={(event) =>
+                    handleRepositoryChange(index, event.currentTarget.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    if (!value.trim()) return;
+                    event.preventDefault();
+                    handleAddRepository(true);
+                  }}
+                  placeholder={`Repositorio ${index + 1}`}
+                  style={{ flex: 1 }}
+                />
+                <ActionIcon
+                  color="red"
+                  variant="light"
+                  onClick={() => handleDeleteRepository(index)}
+                  aria-label={`Eliminar repositorio ${index + 1}`}
+                >
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Group>
             ))}
             <Button
               variant="light"

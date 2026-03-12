@@ -2,10 +2,10 @@
   "version": 1,
   "name": "Manual de instalación - TPCDG-6599",
   "createdAt": "2026-03-03T22:22:27.752Z",
-  "updatedAt": "2026-03-10T08:24:37.205Z",
+  "updatedAt": "2026-03-12T15:31:23.697Z",
   "state": {
     "manualTitle": "Manual de instalación - TPCDG-6599",
-    "activeStep": 8,
+    "activeStep": 4,
     "data": {
       "camposDetectados": [
         {
@@ -1054,12 +1054,18 @@
         "developerName": "Victor Reyes",
         "developerContact": "+504 97380822",
         "repositories": [
-          "Middleware/Vortex",
-          "Middleware/OSB",
-          "Middleware/DB"
+          "OSB",
+          "DB",
+          "Vortex",
+          "Test"
         ],
-        "repositoriesInput": "Middleware/Vortex, Middleware/OSB, Middleware/DB",
-        "pickerRepositories": [],
+        "repositoriesInput": "OSB, DB, Vortex, Test",
+        "pickerRepositories": [
+          "OSB",
+          "DB",
+          "Vortex",
+          "Test"
+        ],
         "bossName": "Homero Nuñez",
         "bossContact": "+51 912124145"
       }

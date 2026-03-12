@@ -26,6 +26,7 @@ export function notifySuccess({
     color: "green",
     icon: <IconCheck size={16} />,
     position: "bottom-center",
+    withCloseButton: false,
   });
 }
 
@@ -36,6 +37,7 @@ export function notifyError({ title = "Error", message }: NotificationOptions) {
     color: "red",
     icon: <IconX size={16} />,
     position: "bottom-center",
+    withCloseButton: false,
   });
 }
 
@@ -49,6 +51,7 @@ export function notifyWarning({
     color: "yellow",
     icon: <IconAlertTriangle size={16} />,
     position: "bottom-center",
+    withCloseButton: false,
   });
 }
 
@@ -62,5 +65,6 @@ export function notifyInfo({
     color: "blue",
     icon: <IconInfoCircle size={16} />,
     position: "bottom-center",
+    withCloseButton: false,
   });
 }

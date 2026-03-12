@@ -25,6 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useManual } from "@/context/ManualContext";
 import { mainColor } from "@/lib/utils";
+import { notifySuccess } from "@/lib/notifications";
 import type {
   BackupHeaderOneRow,
   BackupHeaderThreeRow,
@@ -195,6 +196,7 @@ export function BackupTablesStep({
 
   function handleConfirmDelete() {
     if (groupToDeleteIndex === null) return;
+    const deletedGroupName = selectedGroupName || "sin nombre";
 
     setGroups((prev) =>
       buildSequentialBackupTitles(
@@ -202,6 +204,10 @@ export function BackupTablesStep({
       ),
     );
     handleCloseDeleteModal();
+    notifySuccess({
+      title: "Tabla eliminada",
+      message: `La tabla "${deletedGroupName}" se eliminó correctamente`,
+    });
   }
 
   function handleOpenOrderModal() {
@@ -359,7 +365,7 @@ export function BackupTablesStep({
           </Text>
         </Flex>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing="xs">
           {groups.map((group, index) => (
             <Flex
               key={`${group.title}-${index}`}
@@ -571,7 +577,7 @@ export function BackupTablesStep({
       >
         <Stack>
           <Stack gap="xs">
-            <SimpleGrid cols={{ base: 1, sm: 3 }}>
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
               <TextInput
                 label="Equipo encargado de respaldo"
                 value={headerOne.responsibleTeam}
@@ -663,7 +669,7 @@ export function BackupTablesStep({
                       </Flex>
                     </Flex>
 
-                    <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
                       <Textarea
                         label="Paso"
                         autosize
@@ -710,7 +716,7 @@ export function BackupTablesStep({
           </Stack>
 
           <Stack gap="xs">
-            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
               <Textarea
                 label="Servidor (Nombre, IP)"
                 autosize

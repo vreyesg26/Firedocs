@@ -5,7 +5,7 @@ const App = () => {
 
   return (
     <AppShell
-      padding="md"
+      padding="xs"
     >
       <AppShell.Main>
         <Outlet />

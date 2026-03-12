@@ -121,12 +121,12 @@ export default function HomePage() {
         </Title>
 
         <Text c="dimmed" className={classes.description} ta="center" mt="md">
-          Este sistema le permite crear manuales de instalación de manera rápida
+          Esta herramienta le permite crear manuales de instalación de manera rápida
           y sencilla, optimizando su tiempo y recursos.
         </Text>
         <SimpleGrid
           cols={{ base: 1, sm: 1, md: features.length, lg: features.length }}
-          spacing="sm"
+          spacing="xs"
           mx="md"
           mt={50}
         >

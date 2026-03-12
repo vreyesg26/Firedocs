@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Loader,
   Container,
@@ -12,9 +12,15 @@ import {
   Title,
   Card,
   ActionIcon,
+  Modal,
+  Stack,
   Switch,
 } from "@mantine/core";
-import { getDefaultVisibleStepKeys, hiddenByDefaultStepKeys, steps } from "@/lib/constants";
+import {
+  getDefaultVisibleStepKeys,
+  hiddenByDefaultStepKeys,
+  steps,
+} from "@/lib/constants";
 import { useManual } from "@/context/ManualContext";
 import {
   IconArrowLeft,
@@ -75,6 +81,10 @@ export default function StepsPage() {
     saveCurrentDraft,
     visibleStepKeys,
     setVisibleStepKeys,
+    setDetailedFixPieces,
+    setBackupFixTables,
+    setInstallationFixTables,
+    setReversionFixTables,
   } = useManual() as {
     data: unknown;
     sections: UISection[] | null;
@@ -99,6 +109,10 @@ export default function StepsPage() {
     saveCurrentDraft: () => Promise<{ id?: string } | undefined>;
     visibleStepKeys: string[];
     setVisibleStepKeys: (value: string[]) => void;
+    setDetailedFixPieces: (value: PiezasGrupo[]) => void;
+    setBackupFixTables: (value: BackupTableGroup[]) => void;
+    setInstallationFixTables: (value: InstallationTableGroup[]) => void;
+    setReversionFixTables: (value: InstallationTableGroup[]) => void;
   };
   const normalizedActiveStep =
     typeof activeStep === "number" && Number.isFinite(activeStep)
@@ -106,8 +120,16 @@ export default function StepsPage() {
       : 0;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
+  const [fixFlowDisableConfirmOpen, setFixFlowDisableConfirmOpen] =
+    useState(false);
   const [active, setActive] = useState<number>(normalizedActiveStep);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const draftSavingRef = useRef(draftSaving);
+  const saveDraftShortcutRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    draftSavingRef.current = draftSaving;
+  }, [draftSaving]);
 
   useEffect(() => {
     setActive(normalizedActiveStep);
@@ -115,7 +137,9 @@ export default function StepsPage() {
 
   const normalizedVisibleStepKeys = useMemo(() => {
     const availableKeys = new Set(steps.map((step) => step.key));
-    const filtered = (visibleStepKeys ?? []).filter((key) => availableKeys.has(key));
+    const filtered = (visibleStepKeys ?? []).filter((key) =>
+      availableKeys.has(key),
+    );
     return filtered.length > 0 ? filtered : [steps[0]?.key].filter(Boolean);
   }, [visibleStepKeys]);
 
@@ -125,12 +149,31 @@ export default function StepsPage() {
   );
 
   const isFixFlowEnabled = useMemo(
-    () => fixFlowStepKeys.every((stepKey) => normalizedVisibleStepKeys.includes(stepKey)),
+    () =>
+      fixFlowStepKeys.every((stepKey) =>
+        normalizedVisibleStepKeys.includes(stepKey),
+      ),
     [normalizedVisibleStepKeys],
+  );
+  const hasFixFlowData = useMemo(
+    () =>
+      detailedFixPieces.length > 0 ||
+      backupFixTables.length > 0 ||
+      installationFixTables.length > 0 ||
+      reversionFixTables.length > 0,
+    [
+      backupFixTables.length,
+      detailedFixPieces.length,
+      installationFixTables.length,
+      reversionFixTables.length,
+    ],
   );
 
   useEffect(() => {
-    if (!steps[active] || normalizedVisibleStepKeys.includes(steps[active].key)) {
+    if (
+      !steps[active] ||
+      normalizedVisibleStepKeys.includes(steps[active].key)
+    ) {
       return;
     }
 
@@ -219,7 +262,7 @@ export default function StepsPage() {
     titleInputRef.current?.select();
   }, [isEditingTitle]);
 
-  async function handleSaveDraft() {
+  const handleSaveDraft = useCallback(async () => {
     setDraftSaving(true);
     try {
       const saved = await saveCurrentDraft();
@@ -243,7 +286,38 @@ export default function StepsPage() {
     } finally {
       setDraftSaving(false);
     }
-  }
+  }, [saveCurrentDraft]);
+
+  useEffect(() => {
+    saveDraftShortcutRef.current = () => {
+      if (!draftSavingRef.current) {
+        void handleSaveDraft();
+      }
+    };
+  }, [handleSaveDraft]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      const isShortcutPressed = event.ctrlKey || event.metaKey;
+      if (!isShortcutPressed || event.altKey || event.shiftKey) return;
+
+      const pressedKey = event.key.toLowerCase();
+
+      if (pressedKey === "g") {
+        event.preventDefault();
+        saveDraftShortcutRef.current();
+        return;
+      }
+
+      if (pressedKey === "t") {
+        event.preventDefault();
+        setIsEditingTitle(true);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const renderStepContent = () => {
     const key = steps[active]?.key;
@@ -278,7 +352,7 @@ export default function StepsPage() {
     }
   };
 
-  function handleToggleFixFlow(enabled: boolean) {
+  function applyFixFlowToggle(enabled: boolean) {
     const defaultVisibleKeys = getDefaultVisibleStepKeys();
     const nextVisibleKeys = enabled
       ? steps.map((step) => step.key)
@@ -286,130 +360,157 @@ export default function StepsPage() {
     setVisibleStepKeys(nextVisibleKeys);
   }
 
+  function handleToggleFixFlow(enabled: boolean) {
+    if (enabled) {
+      applyFixFlowToggle(true);
+      return;
+    }
+
+    if (!hasFixFlowData) {
+      applyFixFlowToggle(false);
+      return;
+    }
+
+    setFixFlowDisableConfirmOpen(true);
+  }
+
+  function handleCancelDisableFixFlow() {
+    setFixFlowDisableConfirmOpen(false);
+  }
+
+  function handleConfirmDisableFixFlow() {
+    setDetailedFixPieces([]);
+    setBackupFixTables([]);
+    setInstallationFixTables([]);
+    setReversionFixTables([]);
+    applyFixFlowToggle(false);
+    setFixFlowDisableConfirmOpen(false);
+  }
+
   if (!data || !sections) {
     return <Navigate to="/" replace />;
   }
 
   return (
-    <Container
-      fluid
-      px="lg"
-      pt="md"
-      pb={0}
-      style={{
-        minHeight: "calc(100dvh - 60px)",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <Card withBorder>
-        <Flex justify="space-between" align="center" gap="xs">
-          <ActionIcon
-            variant="subtle"
-            color="white"
-            onClick={() => navigate("/drafts")}
-            aria-label="Volver a borradores"
-          >
-            <IconArrowLeft size="1.5rem" />
-          </ActionIcon>
-          <Box
-            style={{
-              minWidth: 0,
-              flex: 1,
-              height:
-                "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
-              position: "relative",
-            }}
-          >
-            <Title
-              fw={700}
-              order={2}
-              onDoubleClick={() => setIsEditingTitle(true)}
+    <>
+      <Container
+        fluid
+        px={3}
+        pt={3}
+        style={{
+          minHeight: "calc(100dvh - 60px)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <Card withBorder>
+          <Flex justify="space-between" align="center" gap="xs">
+            <ActionIcon
+              variant="subtle"
+              color="white"
+              onClick={() => navigate("/drafts")}
+              aria-label="Volver a borradores"
+            >
+              <IconArrowLeft size="1.5rem" />
+            </ActionIcon>
+            <Box
               style={{
-                cursor: "text",
-                lineHeight: "var(--mantine-h2-line-height)",
-                margin: 0,
-                position: "absolute",
-                inset: 0,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                opacity: isEditingTitle ? 0 : 1,
-                pointerEvents: isEditingTitle ? "none" : "auto",
+                minWidth: 0,
+                flex: 1,
+                height:
+                  "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+                position: "relative",
               }}
             >
-              {manualTitle || "Sin título"}
-            </Title>
-            <TextInput
-              ref={titleInputRef}
-              value={manualTitle}
-              onChange={(e) => setManualTitle(e.currentTarget.value)}
-              onBlur={() => setIsEditingTitle(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") setIsEditingTitle(false);
-              }}
-              variant="unstyled"
-              styles={{
-                root: {
-                  width: "100%",
+              <Title
+                fw={700}
+                order={2}
+                onDoubleClick={() => setIsEditingTitle(true)}
+                style={{
+                  cursor: "text",
+                  lineHeight: "var(--mantine-h2-line-height)",
+                  margin: 0,
                   position: "absolute",
                   inset: 0,
-                  opacity: isEditingTitle ? 1 : 0,
-                  pointerEvents: isEditingTitle ? "auto" : "none",
-                },
-                input: {
-                  width: "100%",
-                  padding: 0,
-                  margin: 0,
-                  height:
-                    "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
-                  minHeight:
-                    "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
-                  lineHeight: "var(--mantine-h2-line-height)",
-                  fontSize: "var(--mantine-h2-font-size)",
-                  fontWeight: 700,
-                },
-              }}
-            />
-          </Box>
-          {hasUnsavedChanges && (
-            <Button
-              color={mainColor}
-              onClick={handleSaveDraft}
-              disabled={draftSaving}
-              rightSection={
-                draftSaving ? <Loader size={14} color="white" /> : null
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  opacity: isEditingTitle ? 0 : 1,
+                  pointerEvents: isEditingTitle ? "none" : "auto",
+                }}
+              >
+                {manualTitle || "Sin título"}
+              </Title>
+              <TextInput
+                ref={titleInputRef}
+                value={manualTitle}
+                onChange={(e) => setManualTitle(e.currentTarget.value)}
+                onBlur={() => setIsEditingTitle(false)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setIsEditingTitle(false);
+                }}
+                variant="unstyled"
+                styles={{
+                  root: {
+                    width: "100%",
+                    position: "absolute",
+                    inset: 0,
+                    opacity: isEditingTitle ? 1 : 0,
+                    pointerEvents: isEditingTitle ? "auto" : "none",
+                  },
+                  input: {
+                    width: "100%",
+                    padding: 0,
+                    margin: 0,
+                    height:
+                      "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+                    minHeight:
+                      "calc(var(--mantine-h2-font-size) * var(--mantine-h2-line-height))",
+                    lineHeight: "var(--mantine-h2-line-height)",
+                    fontSize: "var(--mantine-h2-font-size)",
+                    fontWeight: 700,
+                  },
+                }}
+              />
+            </Box>
+            {hasUnsavedChanges && (
+              <Button
+                color={mainColor}
+                onClick={handleSaveDraft}
+                disabled={draftSaving}
+                rightSection={
+                  draftSaving ? <Loader size={14} color="white" /> : null
+                }
+              >
+                {draftId ? "Guardar borrador" : "Crear borrador"}
+              </Button>
+            )}
+            <Switch
+              checked={isFixFlowEnabled}
+              onChange={(event) =>
+                handleToggleFixFlow(event.currentTarget.checked)
               }
-            >
-              {draftId ? "Guardar borrador" : "Crear borrador"}
-            </Button>
-          )}
-          <Switch
-            checked={isFixFlowEnabled}
-            onChange={(event) =>
-              handleToggleFixFlow(event.currentTarget.checked)
-            }
-            label="Incluye Bugfix/Hotfix"
-            size="sm"
-          />
-        </Flex>
-      </Card>
+              label="Incluye bugfix/hotfix"
+              size="sm"
+            />
+          </Flex>
+        </Card>
 
-      <Progress
-        color={mainColor}
-        value={progress.percent}
-        size="lg"
-        radius="sm"
-        mt="md"
-      />
-      <Group justify="space-between" my="xs">
-        <Text fw={600}>Progreso del manual</Text>
-        <Text c="dimmed">{progress.percent}%</Text>
-      </Group>
+        <Progress
+          color={progress.completed ? "green" : mainColor}
+          value={progress.percent}
+          size="lg"
+          radius="sm"
+          mt="md"
+        />
+        <Group justify="space-between" my="xs">
+          <Text fw={600}>Progreso del manual</Text>
+          <Text c="dimmed">{progress.percent}%</Text>
+        </Group>
 
-      <Box my="md">{renderStepContent()}</Box>
-
-      <Box mt="auto" style={{ flexShrink: 0 }}>
+        <Box my="md">{renderStepContent()}</Box>
+      </Container>
+      <Box px={3}>
         <Group justify="space-between" align="center" wrap="wrap" gap="xs">
           <Button
             leftSection={<IconChevronLeft size="1.1rem" />}
@@ -426,14 +527,6 @@ export default function StepsPage() {
             justify="flex-end"
             style={{ marginLeft: "auto" }}
           >
-            {/* <Button
-              leftSection={<IconFileUpload size="1.1rem" />}
-              onClick={handleExport}
-              variant="outline"
-              color="gray"
-            >
-              Exportar
-            </Button> */}
             <Button
               rightSection={<IconChevronRight size="1.1rem" />}
               onClick={next}
@@ -447,6 +540,30 @@ export default function StepsPage() {
           </Flex>
         </Group>
       </Box>
-    </Container>
+
+      <Modal
+        opened={fixFlowDisableConfirmOpen}
+        onClose={handleCancelDisableFixFlow}
+        title="Deshabilitar bugfix/hotfix"
+        centered
+        radius="md"
+        size="sm"
+      >
+        <Stack>
+          <Text>
+            ¿Estás seguro de que deseas deshabilitar las pantallas de bugfix y
+            hotfix? La información ingresada en esos pasos se eliminará.
+          </Text>
+          <Flex justify="flex-end" gap="xs">
+            <Button variant="default" onClick={handleCancelDisableFixFlow}>
+              Cancelar
+            </Button>
+            <Button color="red" onClick={handleConfirmDisableFixFlow}>
+              Deshabilitar y eliminar
+            </Button>
+          </Flex>
+        </Stack>
+      </Modal>
+    </>
   );
 }

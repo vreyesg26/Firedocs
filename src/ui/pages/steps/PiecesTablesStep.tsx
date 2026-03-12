@@ -36,7 +36,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { mainColor } from "@/lib/utils";
-import { notifyError } from "@/lib/notifications";
+import { notifyError, notifySuccess } from "@/lib/notifications";
 import {
   errorMessage,
   extFromFileName,
@@ -600,10 +600,15 @@ export function PiecesTablesStep({
 
   function handleConfirmDeleteGroup() {
     if (groupToDeleteIndex === null) return;
+    const deletedGroupName = groups[groupToDeleteIndex]?.grupo || "Sin nombre";
     setGroups((prev: PiezasGrupo[]) =>
       prev.filter((_, index) => index !== groupToDeleteIndex),
     );
     handleCloseDeleteModal();
+    notifySuccess({
+      title: "Tabla eliminada",
+      message: `La tabla "${deletedGroupName}" se eliminó correctamente`,
+    });
   }
 
   function handleOpenOrderModal() {
@@ -789,7 +794,7 @@ export function PiecesTablesStep({
           </Text>
         </Flex>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md">
+        <SimpleGrid cols={{ base: 1, sm: 2 }} mt="md" spacing='xs'>
           {groups.map((grupo: PiezasGrupo, index: number) => (
             <Flex
               key={grupo.grupo + index}
